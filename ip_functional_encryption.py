@@ -106,8 +106,43 @@ def decrypt(mpk, ct, sk_y, y):
         raise ValueError("discrete log failed (increase prime or reduce message range).")
     return ip % (p - 1)
 
-if __name__ == "__main__":
+class FunctionalEncryptionDemo:
+    def __init__(self, p, x, y):
+        self.p = p
+        self.x = x
+        self.y = y
+        self.length = len(x)
+        self.mpk = None
+        self.msk = None
+        self.Ct = None
+        self.sk_y = None
+        self.ip = None
 
+    def setup(self):
+        self.mpk, self.msk = setup(self.length, self.p)
+
+    def encrypt(self):
+        self.Ct = encrypt(self.mpk, self.x)
+
+    def key_derive(self):
+        self.sk_y = key_der(self.msk, self.y, self.p)
+
+    def decrypt(self):
+        self.ip = decrypt(self.mpk, self.Ct, self.sk_y, self.y)
+
+    def run(self):
+        self.setup()
+        self.encrypt()
+        self.key_derive()
+        self.decrypt()
+        print("p:", self.p, "g:", self.mpk["g"])
+        print("x:", self.x)
+        print("y:", self.y)
+        print("<x, y> (expected):", sum(xi * yi for xi, yi in zip(self.x, self.y)))
+        print("<x, y> (decrypted):", self.ip)
+
+
+if __name__ == "__main__":
     # choose prime (1^lamda)
     p = 104729
 
@@ -115,21 +150,9 @@ if __name__ == "__main__":
     x = [0, 1, 2, 3]
     # Calc vector
     y = [1, 2, 1, 2]
-    length = len(x)
 
-
-    mpk, msk = setup(length, p)
-
-    Ct = encrypt(mpk, x)
-    sk_y = key_der(msk, y, p)
-
-    ip = decrypt(mpk, Ct, sk_y, y)
-
-    print("p:", p, "g:", mpk["g"])
-    print("x:", x)
-    print("y:", y)
-    print("<x, y> (expected):", sum(xi * yi for xi, yi in zip(x, y)))
-    print("<x, y> (decrypted):", ip)
+    fe_demo = FunctionalEncryptionDemo(p, x, y)
+    fe_demo.run()
 
 
 
