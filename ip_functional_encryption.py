@@ -1,5 +1,6 @@
 from math import isqrt
 import random
+import numpy as np
 # helper functions
 
 
