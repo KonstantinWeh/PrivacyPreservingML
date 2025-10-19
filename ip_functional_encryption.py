@@ -1,5 +1,9 @@
 import random
+
+import numpy as np
+
 from math_helper import inv_mod, factor, bsgs, find_generator
+import matplotlib.pyplot as plt
 
 class IPFE:
     def __init__(self, p):
@@ -68,7 +72,13 @@ class IPFE:
 
     def run(self, l, x, y):
         self.setup(l)
+        # ct_0, ct
         ct = self.encrypt(x)
+        plt.imshow(np.asarray(ct[1]).reshape(28, 28), cmap='gray')
+        plt.title("Encrypted image")
+        plt.show()
+        plt.close()
+
         sk_y = self.key_derive(y)
         ip = self.decrypt(ct, sk_y, y)
         print("p:", self.p, "g:", self.g)
