@@ -5,11 +5,9 @@ class IPFE:
     def __init__(self, p):
         self.p = p
         self.g = None
-        self.y = None
         self.length = None
         self.mpk = None
         self.msk = None
-        self.sk_y = None
 
     # ✅ Checked
     def setup(self, l):
@@ -45,20 +43,18 @@ class IPFE:
     def key_derive(self, y):
         if len(y) != self.length:
             raise ValueError("y length does not match setup length.")
-        self.y = y
-        self.sk_y = sum((si * yi) % (self.p - 1) for si, yi in zip(self.msk, y)) % (self.p - 1)
-        # self.sk_y = sum((si * yi) % self.p for si, yi in zip(self.msk, y)) % self.p
+        return sum((si * yi) % (self.p - 1) for si, yi in zip(self.msk, y)) % (self.p - 1)
 
-    def decrypt(self, ct):
+    def decrypt(self, ct, sk_y, y):
         ct0, cts = ct
 
         # prod_i ct_i^{y_i}
         num = 1
-        for ci, yi in zip(cts, self.y):
+        for ci, yi in zip(cts, y):
             num = (num * pow(ci, yi % (self.p - 1), self.p)) % self.p
 
         # ct0^{sk_y}
-        denom = pow(ct0, self.sk_y % (self.p - 1), self.p)
+        denom = pow(ct0, sk_y % (self.p - 1), self.p)
 
         # compute: prod_i ct_i^{y_i} / ct0^{sk_y}  = g^{<x,y>}
         val = (num * inv_mod(denom, self.p)) % self.p
@@ -73,8 +69,8 @@ class IPFE:
     def run(self, l, x, y):
         self.setup(l)
         ct = self.encrypt(x)
-        self.key_derive(y)
-        ip = self.decrypt(ct)
+        sk_y = self.key_derive(y)
+        ip = self.decrypt(ct, sk_y, y)
         print("p:", self.p, "g:", self.g)
         print("x:", x)
         print("y:", y)
