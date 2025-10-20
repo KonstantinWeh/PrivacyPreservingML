@@ -59,8 +59,6 @@ class IPFE:
 
         # ct0^{sk_y}
         denom = pow(ct0, sk_y % (self.p - 1), self.p)
-
-        # compute: prod_i ct_i^{y_i} / ct0^{sk_y}  = g^{<x,y>}
         val = (num * inv_mod(denom, self.p)) % self.p
 
         # discrete log base g to recover <x,y>  (works for small message ranges)
@@ -68,9 +66,16 @@ class IPFE:
         if ip is None:
             raise ValueError("discrete log failed (increase prime or reduce message range).")
 
-        return ip
+        modulus = self.p - 1
+        half = modulus // 2
+        if ip > half:
+            ip_signed = ip - modulus
+        else:
+            ip_signed = ip
 
-    def run(self, l, x, y, image=False):
+        return ip_signed
+
+    def run(self, l, x, y, scale=1,  image=False):
         self.setup(l)
         # ct_0, ct
         ct = self.encrypt(x)
@@ -81,26 +86,35 @@ class IPFE:
             plt.show()
             plt.close()
 
-        sk_y = self.key_derive(y)
-        ip = self.decrypt(ct, sk_y, y)
+        scaled_y_input = [int(val * scale) for val in y_input]
+
+        sk_y = self.key_derive(scaled_y_input)
+        ip_scaled = self.decrypt(ct, sk_y, scaled_y_input)
+        ip = ip_scaled / scale
+
         print("p:", self.p, "g:", self.g)
         print("x:", x)
         print("y:", y)
-        print("<x, y> (expected):", sum((xi * yi) for xi, yi in zip(x, y)) % (self.p - 1))
+        print("scaled y:", scaled_y_input)
+        print("<x, y> (expected):", sum((xi * yi) for xi, yi in zip(x, y)))
         print("<x, y> (decrypted):", ip)
 
 
 if __name__ == "__main__":
     # choose prime (1^lamda)
-    p_input = 104729
     # p_input = 67
+    #p_input = 104729
+    p_input = 1000000007
     # Encrypted vector
     x_input = [1000000, 100, 200, 300, 5000]
     # Calc vector
-    y_input = [1, 2, 1, 2, -200]
+    y_input = [0.1, -0.2, 0.1, 0.2, -0.2]
+    scale = 100
+
+    # 1000000 * 0.1 + 100 * -0.2 + 200 * 0.1 + 300 * 0.2 + 5000 * -0.2 = 100000 - 20 + 20 + 60 - 1000 = 99060
 
     ipfe_demo = IPFE(p_input)
-    ipfe_demo.run(len(x_input), x_input, y_input)
+    ipfe_demo.run(len(x_input), x_input, y_input, scale)
 
 
 
