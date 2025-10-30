@@ -1,9 +1,8 @@
 import random
-
 import numpy as np
-
 from math_helper import inv_mod, factor, bsgs, find_generator
 import matplotlib.pyplot as plt
+import torch
 
 class IPFE:
     def __init__(self, p):
@@ -20,6 +19,7 @@ class IPFE:
         # and s = (s_1, ..., s_l) <- Z_l^p
         # return mpk = (h_i = g^si) and msk = s
         # see Simple Functional Encryption Schemes for Inner Products, page 8
+
         self.length = l
         self.g = find_generator(self.p)
         s = [random.randrange(1, self.p - 1) for _ in range(self.length)]
@@ -59,8 +59,6 @@ class IPFE:
 
         # ct0^{sk_y}
         denom = pow(ct0, sk_y % (self.p - 1), self.p)
-
-        # compute: prod_i ct_i^{y_i} / ct0^{sk_y}  = g^{<x,y>}
         val = (num * inv_mod(denom, self.p)) % self.p
 
         # discrete log base g to recover <x,y>  (works for small message ranges)
@@ -68,11 +66,16 @@ class IPFE:
         if ip is None:
             raise ValueError("discrete log failed (increase prime or reduce message range).")
 
-        return ip
+        modulus = self.p - 1
+        half = modulus // 2
+        if ip > half:
+            ip_signed = ip - modulus
+        else:
+            ip_signed = ip
 
-    def run(self, l, x, y, image=False):
-        self.setup(l)
-        # ct_0, ct
+        return ip_signed
+
+    def run(self, x, y, bias, scale=1, image=False):
         ct = self.encrypt(x)
 
         if image:
@@ -81,26 +84,39 @@ class IPFE:
             plt.show()
             plt.close()
 
-        sk_y = self.key_derive(y)
-        ip = self.decrypt(ct, sk_y, y)
+        scaled_y_input = [int(val * scale) for val in y]
+
+        sk_y = self.key_derive(scaled_y_input)
+        ip_scaled = self.decrypt(ct, sk_y, scaled_y_input)
+        ip = ip_scaled / scale
+
         print("p:", self.p, "g:", self.g)
         print("x:", x)
         print("y:", y)
-        print("<x, y> (expected):", sum((xi * yi) for xi, yi in zip(x, y)) % (self.p - 1))
-        print("<x, y> (decrypted):", ip)
+        print("scaled y:", scaled_y_input)
+        print("<x, y> (expected):", (sum((xi * yi) for xi, yi in zip(x, y)) + bias))
+        print("<x, y> (decrypted):", ((ip + bias)))
 
 
 if __name__ == "__main__":
     # choose prime (1^lamda)
-    p_input = 104729
     # p_input = 67
+    #p_input = 104729
+    p_input = 1000000007
     # Encrypted vector
-    x_input = [1000000, 100, 200, 300, 5000]
-    # Calc vector
-    y_input = [1, 2, 1, 2, -200]
 
+    x_input = torch.tensor([  0., 133., 254.,   9., 205., 248., 126., 254., 182.])
+    x_input = [(int(val.item()) % (p_input - 1)) for val in x_input]
+
+    y_input = [-0.0300, -0.0261, -0.0194, 0.0786,  0.3495, -0.0135, -0.3420, -0.1810, -0.2126]
+    scale = 10000
+
+    # 1000000 * 0.1 + 100 * -0.2 + 200 * 0.1 + 300 * 0.2 + 5000 * -0.2 = 100000 - 20 + 20 + 60 - 1000 = 99060
+
+    print(len(x_input))
     ipfe_demo = IPFE(p_input)
-    ipfe_demo.run(len(x_input), x_input, y_input)
+    ipfe_demo.setup(len(x_input))
+    ipfe_demo.run(x_input, y_input, -0.016008036211133003, scale)
 
 
 
