@@ -1,0 +1,44 @@
+{
+  "seed": 1337,
+  "device": "cpu",
+  "ipfe": {
+    "prime": 104729,
+    "encryption_length": 9
+  },
+  "data": {
+    "name": "MNIST",
+    "root": "./data",
+    "batch_size": 64,
+    "num_workers": 2,
+    "download": true
+  },
+  "model": {
+    "name": "light",
+    "in_channels": 1,
+    "num_classes": 10,
+    "c1": 16,
+    "c2": 32,
+    "c3": 64,
+    "k1": 3,
+    "k2": 3,
+    "k3": 3,
+    "dropout": 0.5,
+    "encrypted_default": false,
+    "encryption_length": 9,
+    "debug_first_conv": {
+      "compare": false,
+      "center_window": 5,
+      "example_batch": 0
+    }
+  },
+  "train": {
+    "epochs": 3,
+    "lr": 0.0005,
+    "optimizer": "adam",
+    "print_every": 200
+  },
+  "save": {
+    "out_dir": "results",
+    "run_name": "mnist_light"
+  }
+}
