@@ -102,7 +102,10 @@ if __name__ == "__main__":
     # choose prime (1^lamda)
     # p_input = 67
     #p_input = 104729
-    p_input = 1000000007
+    # p_input = 1 000 000 007
+    # p_input = 2300003 # appears safe but im unsure
+    # p_input = 4590007  # should be 100% safe since the range of inner products is less than 4.59 million
+    p_input = 1721257
     # Encrypted vector
 
     x_input = torch.tensor([  0., 133., 254.,   9., 205., 248., 126., 254., 182.])
@@ -111,7 +114,7 @@ if __name__ == "__main__":
     y_input = [-0.0300, -0.0261, -0.0194, 0.0786,  0.3495, -0.0135, -0.3420, -0.1810, -0.2126]
     scale = 10000
 
-    # 1000000 * 0.1 + 100 * -0.2 + 200 * 0.1 + 300 * 0.2 + 5000 * -0.2 = 100000 - 20 + 20 + 60 - 1000 = 99060
+    # -67.16720803621115
 
     print(len(x_input))
     ipfe_demo = IPFE(p_input)
