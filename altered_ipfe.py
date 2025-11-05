@@ -103,8 +103,9 @@ if __name__ == "__main__":
     # p_input = 67
     #p_input = 104729
     # p_input = 1 000 000 007
-    # p_input = 2300003
-    p_input = 4590007
+    # p_input = 2300003 # appears safe but im unsure
+    # p_input = 4590007  # should be 100% safe since the range of inner products is less than 4.59 million
+    p_input = 1721257
     # Encrypted vector
 
     x_input = torch.tensor([  0., 133., 254.,   9., 205., 248., 126., 254., 182.])
