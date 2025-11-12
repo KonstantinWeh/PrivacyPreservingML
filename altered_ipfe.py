@@ -61,6 +61,45 @@ def decrypt_fast(ct0, cts, sk_y, y, p):
     val = (num * mod_inv(denom, p)) % p
     return val
 
+# -----------------------------
+# Batch decrypt all patches
+# -----------------------------
+@njit
+def decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, g, p):
+    """
+    Fully Numba-decrypted patches with BSGS.
+    patches_ct: list of (ct0, cts) tuples
+    Returns list of signed inner products.
+    """
+    num_patches = len(ct0_array)
+    results = np.zeros(num_patches, dtype=np.int64)
+
+    y_vec_int = [int(y) for y in y_vec]
+
+    for i in range(num_patches):
+        ct0 = int(ct0_array[i])
+        cts = [int(c) for c in cts_array[i]]
+
+        # Step 1: modular arithmetic
+        val = decrypt_fast(ct0, cts, int(sk_y), y_vec_int, p)
+
+        # Step 2: discrete log
+        ip = bsgs_numba(g, val, p, p - 1)
+        if ip == -1:
+            raise ValueError("Discrete log failed")
+
+        # Step 3: signed adjustment
+        modulus = p - 1
+        half = modulus // 2
+        if ip > half:
+            ip_signed = ip - modulus
+        else:
+            ip_signed = ip
+
+        results[i] = ip_signed
+
+    return results
+
 class IPFE:
     def __init__(self, p):
         self.p = p
@@ -97,6 +136,19 @@ class IPFE:
         # mpk = [h_0 ... h_n] = [h_i] = [g^(s_i)]
         # ct_i = (h_i)^r * g^(x_i) mod p
         ct = [(pow(h_i, r, self.p) * pow(self.g, x_i % (self.p-1), self.p)) % self.p for h_i, x_i in zip(self.mpk, x)]
+
+        return ct0, ct
+
+    def new_encrypt(self, x):
+        if len(x) != self.length:
+            raise ValueError("x length does not match setup length.")
+
+        r = random.randrange(1, self.p - 1)
+        ct0 = pow(int(self.g), int(r), int(self.p))
+
+        ct = [(pow(int(h_i), int(r), int(self.p)) * pow(int(self.g), int(x_i) % (int(self.p) - 1), int(self.p))) % int(
+            self.p)
+              for h_i, x_i in zip(self.mpk, x)]
 
         return ct0, ct
 
