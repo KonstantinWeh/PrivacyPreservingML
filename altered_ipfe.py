@@ -4,6 +4,63 @@ from math_helper import inv_mod, factor, bsgs, find_generator
 import matplotlib.pyplot as plt
 import torch
 
+from numba import njit
+import math
+
+# --------------------------
+# Helper functions
+# --------------------------
+@njit
+def mod_pow(a, b, p):
+    """Compute (a ** b) % p using binary exponentiation (Numba-friendly)."""
+    result = 1
+    a = a % p
+    while b > 0:
+        if b & 1:
+            result = (result * a) % p
+        a = (a * a) % p
+        b >>= 1
+    return result
+
+@njit
+def mod_inv(a, p):
+    """Modular inverse using Fermat's little theorem (works since p is prime)."""
+    return mod_pow(a, p - 2, p)
+
+# --------------------------
+# Optional Numba bsgs for small message ranges
+# --------------------------
+@njit
+def bsgs_numba(g, h, p, max_range):
+    """Discrete log solver (small message range)"""
+    m = int(math.ceil(math.sqrt(max_range)))
+    table = {}
+    e = 1
+    for j in range(m):
+        table[e] = j
+        e = (e * g) % p
+    factor = mod_pow(g, m * (p - 2), p)  # g^-m mod p
+    gamma = h
+    for i in range(m):
+        if gamma in table:
+            return i * m + table[gamma]
+        gamma = (gamma * factor) % p
+    return -1
+
+# --------------------------
+# Numba-optimized modular arithmetic for decrypt
+# --------------------------
+@njit
+def decrypt_fast(ct0, cts, sk_y, y, p):
+    num = 1
+    for i in range(len(cts)):
+        ci = cts[i]
+        yi = y[i]
+        num = (num * mod_pow(ci, yi % (p - 1), p)) % p
+    denom = mod_pow(ct0, sk_y % (p - 1), p)
+    val = (num * mod_inv(denom, p)) % p
+    return val
+
 class IPFE:
     def __init__(self, p):
         self.p = p
@@ -49,6 +106,39 @@ class IPFE:
             raise ValueError("y length does not match setup length.")
         return sum((si * yi) % (self.p - 1) for si, yi in zip(self.msk, y)) % (self.p - 1)
 
+    def new_decrypt(self, ct, sk_y, y, max_ip=None):
+        """
+        Optimized IPFE decryption.
+        ct: ciphertext tuple (ct0, cts)
+        sk_y: secret key derived from y
+        y: scaled y vector
+        Returns signed inner product.
+        """
+
+        if max_ip is None:
+            max_ip = self.p - 1
+
+        ct0, cts = ct
+
+        # Step 1: fast modular arithmetic
+        val = decrypt_fast(ct0, cts, sk_y, y, self.p)
+
+        # Step 2: discrete log
+        # You can replace with bsgs_numba if inner products are small
+        ip = bsgs_numba(self.g, val, self.p, max_ip)
+        if ip is None:
+            raise ValueError("Discrete log failed; increase prime or reduce message range.")
+
+        # Step 3: adjust for signed inner product
+        modulus = self.p - 1
+        half = modulus // 2
+        if ip > half:
+            ip_signed = ip - modulus
+        else:
+            ip_signed = ip
+
+        return ip_signed
+
     def decrypt(self, ct, sk_y, y):
         ct0, cts = ct
 
@@ -87,7 +177,7 @@ class IPFE:
         scaled_y_input = [int(val * scale) for val in y]
 
         sk_y = self.key_derive(scaled_y_input)
-        ip_scaled = self.decrypt(ct, sk_y, scaled_y_input)
+        ip_scaled = self.new_decrypt(ct, sk_y, scaled_y_input)
         ip = ip_scaled / scale
 
         print("p:", self.p, "g:", self.g)
