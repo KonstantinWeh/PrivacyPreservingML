@@ -1,5 +1,5 @@
 import numpy as np
-from ip_functional_encryption import IPFE
+from first_ipfe import IPFE
 import random
 import matplotlib.pyplot as plt
 from torchvision.datasets import MNIST
