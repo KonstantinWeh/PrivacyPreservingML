@@ -1,69 +1,21 @@
 import random
 import numpy as np
-from math_helper import inv_mod, factor, bsgs, find_generator
+from utils.math_helper import inv_mod, bsgs, find_generator, mod_pow_numba, mod_inv_numba, bsgs_numba
 import matplotlib.pyplot as plt
 import torch
-
 from numba import njit
-import math
 
-# --------------------------
-# Helper functions
-# --------------------------
-@njit
-def mod_pow(a, b, p):
-    """Compute (a ** b) % p using binary exponentiation (Numba-friendly)."""
-    result = 1
-    a = a % p
-    while b > 0:
-        if b & 1:
-            result = (result * a) % p
-        a = (a * a) % p
-        b >>= 1
-    return result
-
-@njit
-def mod_inv(a, p):
-    """Modular inverse using Fermat's little theorem (works since p is prime)."""
-    return mod_pow(a, p - 2, p)
-
-# --------------------------
-# Optional Numba bsgs for small message ranges
-# --------------------------
-@njit
-def bsgs_numba(g, h, p, max_range):
-    """Discrete log solver (small message range)"""
-    m = int(math.ceil(math.sqrt(max_range)))
-    table = {}
-    e = 1
-    for j in range(m):
-        table[e] = j
-        e = (e * g) % p
-    factor = mod_pow(g, m * (p - 2), p)  # g^-m mod p
-    gamma = h
-    for i in range(m):
-        if gamma in table:
-            return i * m + table[gamma]
-        gamma = (gamma * factor) % p
-    return -1
-
-# --------------------------
-# Numba-optimized modular arithmetic for decrypt
-# --------------------------
 @njit
 def decrypt_fast(ct0, cts, sk_y, y, p):
     num = 1
     for i in range(len(cts)):
         ci = cts[i]
         yi = y[i]
-        num = (num * mod_pow(ci, yi % (p - 1), p)) % p
-    denom = mod_pow(ct0, sk_y % (p - 1), p)
-    val = (num * mod_inv(denom, p)) % p
+        num = (num * mod_pow_numba(ci, yi % (p - 1), p)) % p
+    denom = mod_pow_numba(ct0, sk_y % (p - 1), p)
+    val = (num * mod_inv_numba(denom, p)) % p
     return val
 
-# -----------------------------
-# Batch decrypt all patches
-# -----------------------------
 @njit
 def decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, g, p):
     """
@@ -110,7 +62,7 @@ class IPFE:
 
     # ✅ Checked
     def setup(self, l):
-        # setup function for ipfe
+        # setup function for cryptography
         # (G, p, g) <- GroupGen(1^l) (p passed as parameter)
         # and s = (s_1, ..., s_l) <- Z_l^p
         # return mpk = (h_i = g^si) and msk = s
@@ -130,20 +82,6 @@ class IPFE:
             raise ValueError("x length does not match setup length.")
 
         r = random.randrange(1, self.p - 1)
-
-        ct0 = pow(self.g, r, self.p)
-
-        # mpk = [h_0 ... h_n] = [h_i] = [g^(s_i)]
-        # ct_i = (h_i)^r * g^(x_i) mod p
-        ct = [(pow(h_i, r, self.p) * pow(self.g, x_i % (self.p-1), self.p)) % self.p for h_i, x_i in zip(self.mpk, x)]
-
-        return ct0, ct
-
-    def new_encrypt(self, x):
-        if len(x) != self.length:
-            raise ValueError("x length does not match setup length.")
-
-        r = random.randrange(1, self.p - 1)
         ct0 = pow(int(self.g), int(r), int(self.p))
 
         ct = [(pow(int(h_i), int(r), int(self.p)) * pow(int(self.g), int(x_i) % (int(self.p) - 1), int(self.p))) % int(
@@ -158,7 +96,7 @@ class IPFE:
             raise ValueError("y length does not match setup length.")
         return sum((si * yi) % (self.p - 1) for si, yi in zip(self.msk, y)) % (self.p - 1)
 
-    def new_decrypt(self, ct, sk_y, y, max_ip=None):
+    def decrypt(self, ct, sk_y, y, max_ip=None):
         """
         Optimized IPFE decryption.
         ct: ciphertext tuple (ct0, cts)
@@ -182,32 +120,6 @@ class IPFE:
             raise ValueError("Discrete log failed; increase prime or reduce message range.")
 
         # Step 3: adjust for signed inner product
-        modulus = self.p - 1
-        half = modulus // 2
-        if ip > half:
-            ip_signed = ip - modulus
-        else:
-            ip_signed = ip
-
-        return ip_signed
-
-    def decrypt(self, ct, sk_y, y):
-        ct0, cts = ct
-
-        # prod_i ct_i^{y_i}
-        num = 1
-        for ci, yi in zip(cts, y):
-            num = (num * pow(ci, yi % (self.p - 1), self.p)) % self.p
-
-        # ct0^{sk_y}
-        denom = pow(ct0, sk_y % (self.p - 1), self.p)
-        val = (num * inv_mod(denom, self.p)) % self.p
-
-        # discrete log base g to recover <x,y>  (works for small message ranges)
-        ip = bsgs(self.g, val, self.p)
-        if ip is None:
-            raise ValueError("discrete log failed (increase prime or reduce message range).")
-
         modulus = self.p - 1
         half = modulus // 2
         if ip > half:
