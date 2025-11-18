@@ -1,19 +1,18 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
+import torch
 
 def make_mnist_loaders(cfg):
     d = cfg["data"]
+
     tfm = transforms.Compose([
-        transforms.ToTensor(),  # (C,H,W) in [0,1]
-        # Optionally normalize:
-        # transforms.Normalize((0.1307,), (0.3081,))
+        transforms.PILToTensor()                     # (C,H,W) uint8 in [0,255]
     ])
 
-    train_ds = datasets.MNIST(root=d["root"], train=True, download=d["download"], transform=tfm)
+    train_ds = datasets.MNIST(root=d["root"], train=True,  download=d["download"], transform=tfm)
     test_ds  = datasets.MNIST(root=d["root"], train=False, download=d["download"], transform=tfm)
 
-    # Optionally limit test set to first N samples
-    max_test_samples = d.get("max_test_samples", None)
+    max_test_samples = d.get("max_test_samples")
     if max_test_samples is not None:
         test_ds = Subset(test_ds, indices=range(min(max_test_samples, len(test_ds))))
 

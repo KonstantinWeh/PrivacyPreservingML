@@ -1,5 +1,6 @@
 import argparse, yaml, torch
 from pathlib import Path
+import os
 
 from .seed import set_seed
 from .data import make_mnist_loaders
@@ -28,6 +29,41 @@ def build_model(cfg):
         return IPFECNN(cfg)
     else:
         raise ValueError("Unknown model.name")
+
+def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, train_metrics=None):
+    """
+    Save important metrics to a .txt file, including kernel size and number of conv layers.
+    """
+    import os
+
+    model_cfg = cfg.get("model", {})
+    kernel_size = model_cfg.get("k1", "unknown")
+    model_name = model_cfg.get("name", "unknown")
+    num_convs = 4  # based on the architecture in models.py
+    run_name_prefix = f"k{kernel_size}_conv{num_convs}"
+    run_name = cfg.get("save", {}).get("run_name", "run")
+    out_dir = cfg.get("save", {}).get("out_dir", "results")
+    txt_path = f"{out_dir}/{run_name_prefix}_{run_name}_{model_name}.txt"
+    os.makedirs(out_dir, exist_ok=True)
+    with open(txt_path, "w") as f:
+        f.write(f"Run Name: {run_name_prefix}_{run_name}\n")
+        f.write(f"Model Name: {model_name}\n")
+        f.write(f"Kernel Size: {kernel_size}\n")
+        f.write(f"Num Convs: {num_convs}\n")
+        f.write(f"Config File: {args.cfg}\n")
+        f.write(f"Device: {device}\n")
+        f.write(f"Total Parameters: {total_params:,}\n")
+        if args.weights_path:
+            f.write(f"Weights Loaded From: {args.weights_path}\n")
+        else:
+            f.write(f"Trained From Scratch\n")
+            if train_metrics is not None:
+                for k, v in train_metrics.items():
+                    f.write(f"Train {k}: {v}\n")
+        f.write(f"Test set size: {len(loaders['test'].dataset)}\n")
+        for k, v in test_metrics.items():
+            f.write(f"Test {k}: {v}\n")
+    print(f"Saved metrics to: {txt_path}")
 
 def main():
     ap = argparse.ArgumentParser()
@@ -69,6 +105,7 @@ def main():
     print(f"Eval seconds: {test_metrics['eval_seconds']:.2f}")
     print(f"Test Top-1: {test_metrics['top1']:.2f}%")
 
+    save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders)
 
 
 if __name__ == "__main__":

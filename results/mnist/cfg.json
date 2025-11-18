@@ -2,7 +2,7 @@
   "seed": 1337,
   "device": "cpu",
   "ipfe": {
-    "prime": 104729,
+    "prime": 1000000007,
     "encryption_length": 9
   },
   "data": {
@@ -10,7 +10,8 @@
     "root": "./data",
     "batch_size": 64,
     "num_workers": 2,
-    "download": true
+    "download": true,
+    "max_test_samples": 10000
   },
   "model": {
     "name": "light",
@@ -19,14 +20,14 @@
     "c1": 16,
     "c2": 32,
     "c3": 64,
+    "c4": 128,
     "k1": 3,
     "k2": 3,
     "k3": 3,
     "dropout": 0.5,
     "encrypted_default": false,
-    "encryption_length": 9,
     "debug_first_conv": {
-      "compare": false,
+      "compare": true,
       "center_window": 5,
       "example_batch": 0
     }
@@ -39,6 +40,6 @@
   },
   "save": {
     "out_dir": "results",
-    "run_name": "mnist_light"
+    "run_name": "mnist"
   }
 }

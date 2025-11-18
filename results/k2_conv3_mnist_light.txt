@@ -1,0 +1,11 @@
+Run Name: k2_conv3_mnist
+Model Name: light
+Kernel Size: 2
+Num Convs: 3
+Config File: configs/base.yaml
+Device: cpu
+Total Parameters: 98,586
+Weights Loaded From: results/mnist/light_k1-2_conv3.pt
+Test set size: 10000
+Test top1: 98.54
+Test eval_seconds: 7.167904499990982

@@ -1,0 +1,11 @@
+Run Name: k3_conv3_mnist
+Model Name: ipfe
+Kernel Size: 3
+Num Convs: 3
+Config File: configs/base.yaml
+Device: cpu
+Total Parameters: 98,666
+Weights Loaded From: results/mnist/light_k1-3_conv3.pt
+Test set size: 10
+Test top1: 10.0
+Test eval_seconds: 607.9463389000011

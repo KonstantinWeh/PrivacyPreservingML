@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from ip_functional_encryption import IPFE
+import matplotlib.pyplot as plt
 
 # ---- shared builder ----
 def build_backbone(cfg):
@@ -67,6 +68,7 @@ class LightweightCNN(nn.Module):
         self.backbone.load_state_dict(backbone_weights, strict=False)
         print("Loaded weights into LightweightCNN backbone from checkpoint.")
     def forward(self, x):
+        x = x.to(torch.float32)
         return self.backbone.forward_body(x)
 
 class IPFECNN(nn.Module):
@@ -127,17 +129,21 @@ class IPFECNN(nn.Module):
     def _prepare_ipfe_from_conv1(self):
         # Build IPFE vectors from conv1 weights and biases
         w = self.backbone.conv1.weight.data  # (out_ch, in_ch, k, k)
+        self.S_y = 10000
         self.biases = self.backbone.conv1.bias.data
         # flatten each kernel and scale (like your code)
         # NOTE: expects in_ch == 1 for MNIST; if >1, the unfold must match.
-        self.y_array = torch.round(w.view(w.size(0), -1) * 10000).long().tolist()
+        # self.y_array = torch.round(w.view(w.size(0), -1) * 10000).long().tolist()
+        self.y_array = torch.round(w.view(w.size(0), -1).squeeze(1).view(w.size(0), -1) * self.S_y).long().tolist()
         print("weights converted to y vectors")
         self.sk_y_array = [self.ipfe.key_derive(y) for y in self.y_array]
+        print("sk_y_array created:", self.sk_y_array)
         print("biases saved")
         self._ipfe_ready = True
 
     # ---------- encrypted first conv ----------
     def first_conv_forward(self, x, encrypted: bool):
+        x = x.to(torch.float32)
         if not encrypted:
             return self.backbone.conv1(x)
 
@@ -150,6 +156,7 @@ class IPFECNN(nn.Module):
         pad   = self.backbone.conv1.padding[0]
         stride= self.backbone.conv1.stride[0]
 
+        print("x:", x)
         unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
         patches = unfold(x)  # shape: (B, in_ch*ksize*ksize, H*W) with stride/padding applied
 
@@ -166,26 +173,29 @@ class IPFECNN(nn.Module):
             patches_b = patches[b].T  # (num_patches, in_ch*ksize*ksize)
             decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
 
-            print(f"Decrypting {num_kernels} kernels with {num_patches} patches")
-
             for p in range(num_patches):
                 patch = patches_b[p]
+                # view_patch = patch.detach().cpu()
+                # plt.imshow(view_patch, cmap='viridis')
+                # plt.show()
+                # plt.close()
                 patch_int = [int(val.item()) % (self.ipfe.p - 1) for val in patch]
+
                 ct = self.ipfe.encrypt(patch_int)
 
                 for k in range(num_kernels):
                     decrypted_scaled = self.ipfe.decrypt(ct, self.sk_y_array[k], self.y_array[k])
                     # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
-                    decrypted = (decrypted_scaled / 10000) + self.biases[k].item()
+                    decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
                     decrypted_maps[k, p] = decrypted
             # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
-            Hout = int((H + 2*pad - ksize) / stride + 1)
-            Wout = int((W + 2*pad - ksize) / stride + 1)
+            Hout = int((H + 2 * pad - ksize) / stride + 1)
+            Wout = int((W + 2 * pad - ksize) / stride + 1)
             feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
             feature_maps_batch.append(feature_maps_b)
-            print(f"Feature map {b}: {feature_maps_b.shape}")
 
         x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
+
 
         # ---------- Optional debug comparison with regular conv ----------
         if self.debug_compare:
@@ -201,9 +211,12 @@ class IPFECNN(nn.Module):
                     conv_center = x_conv[b, c, h0:h1, w0:w1].detach().cpu()
                     ipfe_center = x_ipfe[b, c, h0:h1, w0:w1].detach().cpu()
                     diff_center = diff[b, c, h0:h1, w0:w1].detach().cpu()
+                    diff = (x_conv - x_ipfe).abs()
+
                     print(f"\n=== Kernel {c} — Center {w}×{w} Region (batch {b}) ===")
                     print("Conv Output:\n", conv_center)
                     print("IPFE Output:\n", ipfe_center)
+                    print("bias used:", self.biases[c].item())
                     print("|Difference|:\n", diff_center)
 
         return x_ipfe
