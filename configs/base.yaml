@@ -9,7 +9,7 @@ data:
   batch_size: 64
   num_workers: 2
   download: true
-  max_test_samples: 10 #000 # Limit test set to first N samples (None for all samples)
+  max_test_samples: 1 #000 # Limit test set to first N samples (None for all samples)
 model:
   name: "ipfe" # "light" for plain and "ipfe" for IPFE
   in_channels: 1
@@ -17,7 +17,6 @@ model:
   c1: 16
   c2: 32
   c3: 64
-  c4: 128
   k1: 3
   k2: 3
   k3: 3
@@ -27,6 +26,11 @@ model:
     compare: true                   # set true to print center-region comparisons
     center_window: 5                 # size of the printed center window
     example_batch: 0                 # which batch index to print
+optimizations:
+  kernel_parallelization: true       # set true to use kernel parallelization
+  kernel_paral_patches: false
+  parallel_decryption: false
+  batch_kernel: false
 train:
   epochs: 3
   lr: 0.0005

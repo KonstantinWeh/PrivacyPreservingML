@@ -67,9 +67,9 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", default="configs/base.yaml")
+    ap.add_argument("--cfg", default="./PrivacyPreservingML/configs/base.yaml")
     ap.add_argument("--save_weights", action="store_true")
-    ap.add_argument("--weights_path")
+    ap.add_argument("--weights_path", default="./PrivacyPreservingML/results/mnist/light_k1-3_conv3.pt")
     args = ap.parse_args()
 
     cfg = load_cfg([args.cfg])

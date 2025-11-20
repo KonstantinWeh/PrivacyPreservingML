@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ip_functional_encryption import IPFE
+from .altered_ipfe import IPFE
 import matplotlib.pyplot as plt
 
 # ---- shared builder ----
@@ -99,6 +99,11 @@ class IPFECNN(nn.Module):
         self.debug_compare = bool(dbg.get("compare", False))
         self.debug_center_window = int(dbg.get("center_window", 5))
         self.debug_example_batch = int(dbg.get("example_batch", 0))
+        self.optimizations = cfg.get("optimizations", {})
+        self.kernel_parallelization = bool(self.optimizations.get("kernel_parallelization", False))
+        self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches", False))
+        self.parallel_decryption = bool(self.optimizations.get("parallel_decryption", False))
+        self.batch_kernel = bool(self.optimizations.get("batch_kernel", False))
 
         # prepared after loading weights
         self._ipfe_ready = False
@@ -165,7 +170,6 @@ class IPFECNN(nn.Module):
 
         feature_maps_batch = []
 
-        # ---------- Logging like your snippet ----------
         print(f"[IPFE] encrypted first conv | B={B} k={ksize}x{ksize} stride={stride} pad={pad} "
               f"| kernels={num_kernels} | patches/feature={num_patches}")
 
@@ -181,10 +185,10 @@ class IPFECNN(nn.Module):
                 # plt.close()
                 patch_int = [int(val.item()) % (self.ipfe.p - 1) for val in patch]
 
-                ct = self.ipfe.encrypt(patch_int)
+                encrypted_patch = self.ipfe.encrypt(patch_int)
 
                 for k in range(num_kernels):
-                    decrypted_scaled = self.ipfe.decrypt(ct, self.sk_y_array[k], self.y_array[k])
+                    decrypted_scaled = self.ipfe.decrypt(encrypted_patch, self.sk_y_array[k], self.y_array[k])
                     # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
                     decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
                     decrypted_maps[k, p] = decrypted
@@ -202,6 +206,7 @@ class IPFECNN(nn.Module):
             with torch.no_grad():
                 x_conv = self.backbone.conv1(x)
                 diff = (x_conv - x_ipfe).abs()
+
                 b = min(self.debug_example_batch, B - 1)
                 w = max(1, self.debug_center_window)
                 for c in range(min(num_kernels, 3)):  # print first 3 kernels to avoid spam

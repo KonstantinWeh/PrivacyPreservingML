@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from math_helper import inv_mod, factor, bsgs, find_generator
+from .math_helper import inv_mod, factor, bsgs, find_generator
 import matplotlib.pyplot as plt
 import torch
 
