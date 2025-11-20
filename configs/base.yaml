@@ -26,7 +26,7 @@ model:
     center_window: 5                 # size of the printed center window
     example_batch: 0                 # which batch index to print
 optimizations:
-  precrypted: false           # default behavior of IPFECNN.forward()
+  precrypted: true           # default behavior of IPFECNN.forward()
   kernel_parallelization: true       # set true to use kernel parallelization
   kernel_paral_patches: false
   parallel_decryption: false

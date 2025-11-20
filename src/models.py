@@ -99,11 +99,11 @@ class IPFECNN(nn.Module):
         self.debug_center_window = int(dbg.get("center_window", 5))
         self.debug_example_batch = int(dbg.get("example_batch", 0))
         self.optimizations = cfg.get("optimizations", {})
-        self.precrypted = bool(self.optimizations.get("precrypted_default", False))
-        self.kernel_parallelization = bool(self.optimizations.get("kernel_parallelization", False))
-        self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches", False))
-        self.parallel_decryption = bool(self.optimizations.get("parallel_decryption", False))
-        self.batch_kernel = bool(self.optimizations.get("batch_kernel", False))
+        self.precrypted = bool(self.optimizations.get("precrypted"))
+        self.kernel_parallelization = bool(self.optimizations.get("kernel_parallelization"))
+        self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches"))
+        self.parallel_decryption = bool(self.optimizations.get("parallel_decryption"))
+        self.batch_kernel = bool(self.optimizations.get("batch_kernel"))
 
         # prepared after loading weights
         self._ipfe_ready = False
@@ -185,12 +185,14 @@ class IPFECNN(nn.Module):
     # ---------- encrypted first conv ----------
     def first_conv_forward(self, x, precrypted: bool):
         # Store original input shape before encryption
-        B, _, H, W = x.shape
+        H, W = 28, 28 # hardcoded bc of MNIST
         
         if not precrypted:
             encrypted_patches = self.encrypt_data(x)  # shape: (B, num_patches, encryption_length + 1)
         else:
             encrypted_patches = x
+        
+        B = encrypted_patches.shape[0]
         
         ksize = self.backbone.conv1.kernel_size[0]
         pad   = self.backbone.conv1.padding[0]

@@ -100,7 +100,8 @@ def main():
 
     # Evaluate (test set)
     print("Evaluating on test set...")
-    test_metrics = evaluate_top1(model, loaders["test"], device=str(device))
+    precrypted = cfg["optimizations"]["precrypted"]
+    test_metrics = evaluate_top1(model, loaders["test"], device=str(device), precrypted=precrypted)
     print(f"Test set size: {len(loaders['test'].dataset)}")
     print(f"Eval seconds: {test_metrics['eval_seconds']:.2f}")
     print(f"Test Top-1: {test_metrics['top1']:.2f}%")
