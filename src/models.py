@@ -94,12 +94,12 @@ class IPFECNN(nn.Module):
 
         # runtime flags (can be driven from cfg)
         mcfg = cfg.get("model", {})
-        self.default_encrypted = bool(mcfg.get("encrypted_default", False))
         dbg = mcfg.get("debug_first_conv", {})
         self.debug_compare = bool(dbg.get("compare", False))
         self.debug_center_window = int(dbg.get("center_window", 5))
         self.debug_example_batch = int(dbg.get("example_batch", 0))
         self.optimizations = cfg.get("optimizations", {})
+        self.precrypted = bool(self.optimizations.get("precrypted_default", False))
         self.kernel_parallelization = bool(self.optimizations.get("kernel_parallelization", False))
         self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches", False))
         self.parallel_decryption = bool(self.optimizations.get("parallel_decryption", False))
@@ -145,96 +145,96 @@ class IPFECNN(nn.Module):
         print("sk_y_array created:", self.sk_y_array)
         print("biases saved")
         self._ipfe_ready = True
-
-    # ---------- encrypted first conv ----------
-    def first_conv_forward(self, x, encrypted: bool):
+    
+    def encrypt_data(self, x):
+        # unfold with same kernel/padding/stride you use for conv1
         x = x.to(torch.float32)
-        if not encrypted:
-            return self.backbone.conv1(x)
-
-        assert self._ipfe_ready, "Call load_from_lightweight(...) before encrypted forward."
-        device = x.device
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad   = self.backbone.conv1.padding[0]
+        stride= self.backbone.conv1.stride[0]
         B, _, H, W = x.shape
 
-        # unfold with same kernel/padding/stride you use for conv1
+
+
+        unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
+        patches = unfold(x)  # shape: (B, in_ch*ksize*ksize, H*W) with stride/padding applied
+        num_patches = patches.shape[-1]
+
+        # Each encrypted patch is a tuple (ct0, ct) where ct0 is scalar and ct is list of length encryption_length
+        # Flatten to shape (B, num_patches, encryption_length + 1)
+        encrypted_patches = []
+        for b in range(B):
+            patches_b = patches[b].T  # (num_patches, in_ch*ksize*ksize)
+            encrypted_image = []
+            for p in range(num_patches):
+                patch = patches_b[p]
+                patch_int = [int(val.item()) % (self.ipfe.p - 1) for val in patch]
+
+                encrypted_patch = self.ipfe.encrypt(patch_int)
+                # Flatten tuple (ct0, ct) to [ct0] + ct
+                ct0, ct = encrypted_patch
+                flattened = [ct0] + ct
+                encrypted_image.append(flattened)
+            encrypted_patches.append(encrypted_image)
+        
+        # Convert to torch tensor: (B, num_patches, encryption_length + 1)
+        encrypted_patches_tensor = torch.tensor(encrypted_patches, dtype=torch.long)
+        return encrypted_patches_tensor
+
+
+    # ---------- encrypted first conv ----------
+    def first_conv_forward(self, x, precrypted: bool):
+        # Store original input shape before encryption
+        B, _, H, W = x.shape
+        
+        if not precrypted:
+            encrypted_patches = self.encrypt_data(x)  # shape: (B, num_patches, encryption_length + 1)
+        else:
+            encrypted_patches = x
+        
         ksize = self.backbone.conv1.kernel_size[0]
         pad   = self.backbone.conv1.padding[0]
         stride= self.backbone.conv1.stride[0]
 
-        print("x:", x)
-        unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
-        patches = unfold(x)  # shape: (B, in_ch*ksize*ksize, H*W) with stride/padding applied
-
-        num_patches = patches.shape[-1]
+        assert self._ipfe_ready, "Call load_from_lightweight(...) before encrypted forward."
+        device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
+        
+        num_patches = encrypted_patches.shape[1]
         num_kernels = len(self.sk_y_array)
+        
+        # Calculate output dimensions
+        Hout = int((H + 2 * pad - ksize) / stride + 1)
+        Wout = int((W + 2 * pad - ksize) / stride + 1)
 
+        # Process each batch
         feature_maps_batch = []
-
-        print(f"[IPFE] encrypted first conv | B={B} k={ksize}x{ksize} stride={stride} pad={pad} "
-              f"| kernels={num_kernels} | patches/feature={num_patches}")
-
         for b in range(B):
-            patches_b = patches[b].T  # (num_patches, in_ch*ksize*ksize)
             decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-
-            for p in range(num_patches):
-                patch = patches_b[p]
-                # view_patch = patch.detach().cpu()
-                # plt.imshow(view_patch, cmap='viridis')
-                # plt.show()
-                # plt.close()
-                patch_int = [int(val.item()) % (self.ipfe.p - 1) for val in patch]
-
-                encrypted_patch = self.ipfe.encrypt(patch_int)
-
-                for k in range(num_kernels):
-                    decrypted_scaled = self.ipfe.decrypt(encrypted_patch, self.sk_y_array[k], self.y_array[k])
+            
+            for k in range(num_kernels):
+                for p in range(num_patches):
+                    # Reconstruct tuple (ct0, ct) from flattened tensor
+                    flattened_patch = encrypted_patches[b, p].cpu().tolist()
+                    ct0 = flattened_patch[0]
+                    ct = flattened_patch[1:]
+                    encrypted_patch_tuple = (ct0, ct)
+                    
+                    decrypted_scaled = self.ipfe.decrypt(encrypted_patch_tuple, self.sk_y_array[k], self.y_array[k])
                     # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
                     decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
                     decrypted_maps[k, p] = decrypted
+            
             # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
-            Hout = int((H + 2 * pad - ksize) / stride + 1)
-            Wout = int((W + 2 * pad - ksize) / stride + 1)
             feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
             feature_maps_batch.append(feature_maps_b)
 
         x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
 
-
-        # ---------- Optional debug comparison with regular conv ----------
-        if self.debug_compare:
-            with torch.no_grad():
-                x_conv = self.backbone.conv1(x)
-                diff = (x_conv - x_ipfe).abs()
-
-                b = min(self.debug_example_batch, B - 1)
-                w = max(1, self.debug_center_window)
-                for c in range(min(num_kernels, 3)):  # print first 3 kernels to avoid spam
-                    Hc, Wc = x_conv.shape[2], x_conv.shape[3]
-                    h0, w0 = Hc // 2 - w//2, Wc // 2 - w//2
-                    h1, w1 = h0 + w, w0 + w
-                    conv_center = x_conv[b, c, h0:h1, w0:w1].detach().cpu()
-                    ipfe_center = x_ipfe[b, c, h0:h1, w0:w1].detach().cpu()
-                    diff_center = diff[b, c, h0:h1, w0:w1].detach().cpu()
-                    diff = (x_conv - x_ipfe).abs()
-
-                    print(f"\n=== Kernel {c} — Center {w}×{w} Region (batch {b}) ===")
-                    print("Conv Output:\n", conv_center)
-                    print("IPFE Output:\n", ipfe_center)
-                    print("bias used:", self.biases[c].item())
-                    print("|Difference|:\n", diff_center)
-
         return x_ipfe
 
     # ---------- full forward ----------
-    def forward(self, x, encrypted: bool = True):
-        """
-        encrypted: if None, uses cfg.model.encrypted_default; else overrides per-call.
-        """
-        if encrypted is None:
-            encrypted = self.default_encrypted
-
-        x = self.first_conv_forward(x, encrypted=encrypted)
+    def forward(self, x):
+        x = self.first_conv_forward(x, precrypted=self.precrypted)
         x = self.backbone.pool1(F.relu(self.backbone.bn1(x)))
 
         # remaining layers are the same as LightweightCNN
