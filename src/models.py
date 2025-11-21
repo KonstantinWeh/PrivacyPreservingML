@@ -110,13 +110,13 @@ class IPFECNN(nn.Module):
         self.optimizations = cfg.get("optimizations", {})
         self.precrypted = bool(self.optimizations.get("precrypted"))
         self.kernel_parallelization = bool(self.optimizations.get("kernel_parallelization"))
-        self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches"))
-        self.parallel_decryption = bool(self.optimizations.get("parallel_decryption"))
-        self.batch_kernel = bool(self.optimizations.get("batch_kernel"))
-        if sum([self.kernel_parallelization, self.kernel_paral_patches, self.parallel_decryption, self.batch_kernel]) > 1:
-            raise ValueError("Only one of kernel_parallelization, kernel_paral_patches, parallel_decryption, batch_kernel can be true")
-        if sum([self.kernel_parallelization, self.kernel_paral_patches, self.parallel_decryption, self.batch_kernel]) == 1 and cfg["optimizations"]["optimized_ipfe"] == False:
-            raise ValueError("optimized_ipfe must be true if one of kernel_parallelization, kernel_paral_patches, parallel_decryption, batch_kernel is true")
+        self.kernel_patches_parallelization = bool(self.optimizations.get("kernel_patches_parallelization"))
+        self.batch_parallelization = bool(self.optimizations.get("batch_parallelization"))
+        self.batch_kernels_parallelization = bool(self.optimizations.get("batch_kernels_parallelization"))
+        if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization, self.batch_kernels_parallelization]) > 1:
+            raise ValueError("Only one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization can be true")
+        if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization, self.batch_kernels_parallelization]) == 1 and cfg["optimizations"]["optimized_ipfe"] == False:
+            raise ValueError("optimized_ipfe must be true if one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization is true")
         
         # prepared after loading weights
         self._ipfe_ready = False
@@ -273,7 +273,7 @@ class IPFECNN(nn.Module):
                     for p in range(num_patches):
                         decrypted_maps[k, :] = torch.tensor(results[0], device=device)
             x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
-        elif self.kernel_paral_patches:
+        elif self.kernel_patches_parallelization:
             decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
             # ----------------------
             # Thread across kernels
@@ -284,6 +284,28 @@ class IPFECNN(nn.Module):
                     k, results = f.result()
                     decrypted_maps[k, :] = torch.tensor(results, device=device)
             x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
+        elif self.batch_parallelization:
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            ct0_array = np.array([np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)])
+            cts_array = np.array([np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)])
+
+            # Loop over kernels
+            for k in range(num_kernels):
+                sk_y = int(self.sk_y_array[k])
+                y_vec = np.array(self.y_array[k], dtype=np.int64)
+                bias = float(self.biases[k].item())
+
+                # Batch decrypt all patches using Numba
+                decrypted_vals = decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p)
+
+                # Scale and add bias
+                decrypted_maps[k, :] = torch.tensor(decrypted_vals / self.S_y + bias, device=device)
+
+            # Reshape to (1, num_kernels, H, W)
+            x_ipfe = decrypted_maps.view(1, num_kernels, H, W)
+
+
+
         else:
             # Process each batch
             feature_maps_batch = []
