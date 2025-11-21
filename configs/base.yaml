@@ -21,10 +21,9 @@ model:
   dropout: 0.5
 optimizations:
   precrypted: true           # default behavior of IPFECNN.forward()
-  optimized_ipfe: true       # set true to use optimized IPFE (needs to be true for all following optimizations)
   kernel_parallelization: false       # set true to use kernel parallelization
-  kernel_patches_parallelization: true
-  batch_parallelization: false
+  kernel_patches_parallelization: false
+  batch_parallelization: true
   batch_kernels_parallelization: false
 train:
   epochs: 3

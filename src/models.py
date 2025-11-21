@@ -123,7 +123,7 @@ class IPFECNN(nn.Module):
         self.cfg = cfg
         self.backbone = build_backbone(cfg)   # SAME layers as PlainCNN
 
-        if cfg["optimizations"]["optimized_ipfe"]:
+        if sum([cfg["optimizations"]["kernel_parallelization"], cfg["optimizations"]["kernel_patches_parallelization"], cfg["optimizations"]["batch_parallelization"], cfg["optimizations"]["batch_kernels_parallelization"]]) > 1:
             self.ipfe = OptimizedIPFE(cfg["ipfe"]["prime"])
         else:
             self.ipfe = IPFE(cfg["ipfe"]["prime"])
@@ -151,8 +151,6 @@ class IPFECNN(nn.Module):
         self.batch_kernels_parallelization = bool(self.optimizations.get("batch_kernels_parallelization"))
         if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization, self.batch_kernels_parallelization]) > 1:
             raise ValueError("Only one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization can be true")
-        if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization, self.batch_kernels_parallelization]) == 1 and cfg["optimizations"]["optimized_ipfe"] == False:
-            raise ValueError("optimized_ipfe must be true if one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization is true")
         
         # prepared after loading weights
         self._ipfe_ready = False
