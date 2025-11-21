@@ -7,7 +7,7 @@ from .data import make_mnist_loaders
 from .models import PlainCNN, IPFECNN
 from .train import fit
 from .eval import evaluate_top1
-from .utils import make_run_dir, save_config, save_checkpoint
+from .utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
 
 def load_cfg(path_list):
     cfg = {}
@@ -30,22 +30,29 @@ def build_model(cfg):
     else:
         raise ValueError("Unknown model.name")
 
-def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, train_metrics=None):
+def load_model_from_cfg(cfg):
+    # 1) Build model
+    if cfg["model"]["name"] == "plain":
+        model = PlainCNN(cfg)
+    else:
+        model = IPFECNN(cfg)
+
+    # 2) Locate checkpoint using the config-based tag
+    models_dir = Path(cfg["save"]["models_dir"])
+    ckpt_path = find_checkpoint(cfg)
+
+    # 3) Load weights
+    model.load_from_checkpoint(str(ckpt_path))
+    return model
+
+def save_metrics_to_txt(cfg, total_params, test_metrics, loaders, train_metrics):
     """
-    Save important metrics to a .txt file, including kernel size and number of conv layers.
+    Save important metrics to a .txt file.
     """
     import os
 
     model_cfg = cfg.get("model", {})
-    # First kernel size from list-based config
-    k_list = model_cfg.get("k", None)
-    kernel_size = k_list[0] if isinstance(k_list, (list, tuple)) and len(k_list) > 0 else "unknown"
     model_name = model_cfg.get("name", "unknown")
-    # Number of conv layers is the length of channel list
-    c_list = model_cfg.get("c", None)
-    num_conv_layers = len(c_list) if isinstance(c_list, (list, tuple)) else 0
-    run_name_prefix = f"k{kernel_size}_conv{num_conv_layers}"
-    run_name = cfg.get("save", {}).get("run_name", "run")
     out_dir = cfg.get("save", {}).get("out_dir", "results")
     model_name = cfg.get("model", {}).get("name", "unknown")
     optimizations = cfg.get("optimizations", {})
@@ -60,25 +67,21 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
         optimizations_str += "_batch_kernels_parallelization"
     else:
         optimizations_str += ""
-
-    txt_path = f"{out_dir}/{run_name_prefix}_{model_name}{optimizations_str}.txt"
+    tag = _build_model_tag_from_cfg(cfg)
+    txt_path = f"{out_dir}/{model_name}{optimizations_str}_{tag}.txt"
     os.makedirs(out_dir, exist_ok=True)
     with open(txt_path, "w") as f:
-        f.write(f"Run Name: {run_name_prefix}_{run_name}\n")
         f.write(f"Model Name: {model_name}\n")
-        f.write(f"Kernel Size: {kernel_size}\n")
-        f.write(f"Num Convs: {num_conv_layers}\n")
-        f.write(f"Config File: {args.cfg}\n")
-        f.write(f"Device: {device}\n")
+        f.write(f"Tag: {tag}\n")
         f.write(f"Total Parameters: {total_params:,}\n")
         f.write(f"Optimizations: {optimizations_str}\n")
-        if args.weights_path:
-            f.write(f"Weights Loaded From: {args.weights_path}\n")
+        if train_metrics is None:
+            ckpt_path = find_checkpoint(cfg)
+            f.write(f"Weights Loaded From: {ckpt_path}\n")
         else:
             f.write(f"Trained From Scratch\n")
-            if train_metrics is not None:
-                for k, v in train_metrics.items():
-                    f.write(f"Train {k}: {v}\n")
+            for k, v in train_metrics.items():
+                f.write(f"Train {k}: {v}\n")
         f.write(f"Test set size: {len(loaders['test'].dataset)}\n")
         for k, v in test_metrics.items():
             f.write(f"Test {k}: {v}\n")
@@ -88,7 +91,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cfg", default="configs/base.yaml")
     ap.add_argument("--save_weights", action="store_true")
-    ap.add_argument("--weights_path", default=None)
     args = ap.parse_args()
 
     cfg = load_cfg([args.cfg])
@@ -96,26 +98,26 @@ def main():
     device = torch.device(cfg["device"] if torch.cuda.is_available() else "cpu")
 
     loaders = make_mnist_loaders(cfg)
-    model = build_model(cfg).to(device)
 
-    # Train
-    print(f"Model created on device: {device}")
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total parameters: {total_params:,}")
+    
 
-    if args.weights_path:
-        model.load_from_checkpoint(args.weights_path)
-        print(f"Weights loaded from: {args.weights_path}")
-    else:
-        print("No weights path provided, training from scratch")
+    try:
+        ckpt_path = find_checkpoint(cfg)
+        model = load_model_from_cfg(cfg)
+        print(f"Model loaded from checkpoint: {ckpt_path}")
+        total_params = sum(p.numel() for p in model.parameters())
+        train_metrics = None
+    except FileNotFoundError:
+        model = build_model(cfg).to(device)
+        print(f"Model created on device: {device}")
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"Total parameters: {total_params:,}")
+        print("Training from scratch and saving weights")
         train_metrics = fit(model, loaders, cfg, device=str(device))
         print(f"Train seconds: {train_metrics['train_seconds']:.2f}")
-        # Save artifacts (weights + cfg) if asked
-        if args.save_weights:
-            run_dir = make_run_dir(cfg)
-            save_config(run_dir, cfg)
-            save_checkpoint(run_dir, model, cfg=cfg)
-            print(f"Saved checkpoint to: {run_dir}")
+        save_checkpoint(model, cfg)
+        print(f"Saved checkpoint to: {find_checkpoint(cfg)}")
+
 
     # Evaluate (test set)
     print("Evaluating on test set...")
@@ -124,7 +126,7 @@ def main():
     print(f"Eval seconds: {test_metrics['eval_seconds']:.2f}")
     print(f"Test Top-1: {test_metrics['top1']:.2f}%")
 
-    save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders)
+    save_metrics_to_txt(cfg, total_params, test_metrics, loaders, train_metrics)
 
 
 if __name__ == "__main__":

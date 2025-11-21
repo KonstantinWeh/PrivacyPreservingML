@@ -12,9 +12,11 @@ import os
 # ---- shared builder ----
 def build_backbone(cfg):
     m = cfg["model"]
-    # Channel configuration and kernel sizes as lists for easier scaling
+    # Channel configuration, kernel sizes, strides and padding as lists for easier scaling
     channels = m["c"]          # e.g. [16, 32, 64]
     kernels = m["k"]           # e.g. [3, 3, 3]
+    strides = m.get("stride", [1] * len(channels))
+    paddings = m.get("padding", [0] * len(channels))
     in_channels = m["in_channels"]
     num_classes = m["num_classes"]
     dropout_p = m.get("dropout", 0.5)
@@ -22,27 +24,53 @@ def build_backbone(cfg):
     class _Backbone(nn.Module):
         def __init__(self):
             super().__init__()
-            self.conv1 = nn.Conv2d(in_channels, channels[0], kernel_size=kernels[0], padding=1)
-            self.bn1   = nn.BatchNorm2d(channels[0])
-            self.pool1 = nn.MaxPool2d(2, 2)
 
-            self.conv2 = nn.Conv2d(channels[0], channels[1], kernel_size=kernels[1], padding=1)
-            self.bn2   = nn.BatchNorm2d(channels[1])
-            self.pool2 = nn.MaxPool2d(2, 2)
+            # Build conv / BN / pool stacks dynamically from config
+            n_layers = len(channels)
+            in_ch = in_channels
 
-            self.conv3 = nn.Conv2d(channels[1], channels[2], kernel_size=kernels[2], padding=1)
-            self.bn3   = nn.BatchNorm2d(channels[2])
-            self.pool3 = nn.MaxPool2d(2, 2)
+            # Assume MNIST 28x28 input; update H, W as we add layers
+            H, W = 28, 28
 
-            # for MNIST 28x28 → 14x14 → 7x7 → 3x3 after 3 pools
-            self.fc1 = nn.Linear(channels[2] * 3 * 3, 128)
+            for i in range(n_layers):
+                out_ch = channels[i]
+                k = kernels[i]
+                s = strides[i] if i < len(strides) else 1
+                p = paddings[i] if i < len(paddings) else 0
+
+                conv = nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p)
+                bn = nn.BatchNorm2d(out_ch)
+                pool = nn.MaxPool2d(2, 2)
+
+                # Register as attributes conv1, conv2, ..., so existing code (conv1) still works
+                setattr(self, f"conv{i+1}", conv)
+                setattr(self, f"bn{i+1}", bn)
+                setattr(self, f"pool{i+1}", pool)
+
+                # Track spatial size after conv and pool
+                H = int((H + 2 * p - k) / s + 1)
+                W = int((W + 2 * p - k) / s + 1)
+                H = int((H - 2) / 2 + 1)
+                W = int((W - 2) / 2 + 1)
+
+                in_ch = out_ch
+
+            # FC input is last conv channels * final H * final W
+            self.flatten_dim = in_ch * H * W
+            self.fc1 = nn.Linear(self.flatten_dim, 128)
             self.dropout = nn.Dropout(dropout_p)
             self.fc2 = nn.Linear(128, num_classes)
 
         def forward_body(self, x):
-            x = self.pool1(F.relu(self.bn1(self.conv1(x))))
-            x = self.pool2(F.relu(self.bn2(self.conv2(x))))
-            x = self.pool3(F.relu(self.bn3(self.conv3(x))))
+            # Apply all conv+BN+pool layers in order
+            i = 1
+            while hasattr(self, f"conv{i}"):
+                conv = getattr(self, f"conv{i}")
+                bn = getattr(self, f"bn{i}")
+                pool = getattr(self, f"pool{i}")
+                x = pool(F.relu(bn(conv(x))))
+                i += 1
+
             x = x.view(x.size(0), -1)
             x = F.relu(self.fc1(x))
             x = self.dropout(x)
