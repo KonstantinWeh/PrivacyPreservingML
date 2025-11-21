@@ -201,13 +201,13 @@ class IPFECNN(nn.Module):
         y_vec = [int(v) for v in self.y_array[k]]
         bias = self.biases[k].item()
         results = []
-        for p_idx, patch in enumerate(encrypted_patches):
-            # Decrypt patch
-            ct0, ct = patch[:1].detach().cpu().numpy()[0], patch[1:].detach().cpu().numpy()
-            print("ct.shape: ", ct.shape)
-            val = self.ipfe.decrypt((ct0, ct), sk_y, y_vec, max_ip=self.ipfe.p)
-            decrypted_val = (val / self.S_y) + bias  # scale + bias
-            results.append(decrypted_val)
+        for b in range(len(encrypted_patches)):
+            patch_results = []
+            for p_idx, patch in enumerate(encrypted_patches[b]):
+                val = self.ipfe.decrypt(patch, sk_y, y_vec, max_ip=self.ipfe.p)
+                decrypted_val = (val / self.S_y) + bias  # scale + bias
+                patch_results.append(decrypted_val)
+            results.append(patch_results)
         return k, results
 
 
@@ -248,8 +248,10 @@ class IPFECNN(nn.Module):
                 futures = [executor.submit(self.process_kernel, k, encrypted_patches) for k in range(num_kernels)]
                 for f in futures:
                     k, results = f.result()
-                    decrypted_maps[k, :] = torch.tensor(results, device=device)
-            feature_maps_batch = [decrypted_maps.view(1, num_kernels, Hout, Wout)]
+                    for p in range(num_patches):
+                        decrypted_maps[k, :] = torch.tensor(results[0], device=device)
+            feature_maps_batch = decrypted_maps.view(1, num_kernels, Hout, Wout)
+            x_ipfe = feature_maps_batch
         else:
             # Process each batch
             feature_maps_batch = []
@@ -267,8 +269,7 @@ class IPFECNN(nn.Module):
                 # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
                 feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
                 feature_maps_batch.append(feature_maps_b)
-
-        x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
+            x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
         return x_ipfe
 
     # ---------- full forward ----------

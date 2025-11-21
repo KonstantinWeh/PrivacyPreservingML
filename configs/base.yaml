@@ -27,8 +27,8 @@ model:
     example_batch: 0                 # which batch index to print
 optimizations:
   precrypted: true           # default behavior of IPFECNN.forward()
-  optimized_ipfe: false       # set true to use optimized IPFE (needs to be true for kernel_parallelization and patch_parallelization)
-  kernel_parallelization: false       # set true to use kernel parallelization
+  optimized_ipfe: true       # set true to use optimized IPFE (needs to be true for all following optimizations)
+  kernel_parallelization: true       # set true to use kernel parallelization
   kernel_paral_patches: false
   parallel_decryption: false
   batch_kernel: false
