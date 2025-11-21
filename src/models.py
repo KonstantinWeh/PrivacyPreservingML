@@ -113,7 +113,11 @@ class IPFECNN(nn.Module):
         self.kernel_paral_patches = bool(self.optimizations.get("kernel_paral_patches"))
         self.parallel_decryption = bool(self.optimizations.get("parallel_decryption"))
         self.batch_kernel = bool(self.optimizations.get("batch_kernel"))
-
+        if sum([self.kernel_parallelization, self.kernel_paral_patches, self.parallel_decryption, self.batch_kernel]) > 1:
+            raise ValueError("Only one of kernel_parallelization, kernel_paral_patches, parallel_decryption, batch_kernel can be true")
+        if sum([self.kernel_parallelization, self.kernel_paral_patches, self.parallel_decryption, self.batch_kernel]) == 1 and cfg["optimizations"]["optimized_ipfe"] == False:
+            raise ValueError("optimized_ipfe must be true if one of kernel_parallelization, kernel_paral_patches, parallel_decryption, batch_kernel is true")
+        
         # prepared after loading weights
         self._ipfe_ready = False
         self.y_array = None
@@ -193,6 +197,24 @@ class IPFECNN(nn.Module):
         decrypted_val = (val / 10000.0) + bias
         return p_idx, decrypted_val
 
+    def process_kernel_paral_patches(self, k, encrypted_patches):
+        sk_y = self.sk_y_array[k]
+        y_vec = self.y_array[k]
+        bias = self.biases[k].item()
+        num_patches = len(encrypted_patches[0])
+
+        kernel_results = [0] * num_patches
+
+        # Thread across patches
+        with ThreadPoolExecutor(max_workers=min(num_patches, 8)) as patch_executor:
+            patch_futures = [patch_executor.submit(self.process_patch, p_idx, encrypted_patches[0][p_idx], sk_y, y_vec, bias)
+                                for p_idx in range(num_patches)]
+            for f in patch_futures:
+                p_idx, val = f.result()
+                kernel_results[p_idx] = val
+
+        return k, kernel_results
+
     # ----------------------
     # Helper function for one kernel
     # ----------------------
@@ -250,8 +272,18 @@ class IPFECNN(nn.Module):
                     k, results = f.result()
                     for p in range(num_patches):
                         decrypted_maps[k, :] = torch.tensor(results[0], device=device)
-            feature_maps_batch = decrypted_maps.view(1, num_kernels, Hout, Wout)
-            x_ipfe = feature_maps_batch
+            x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
+        elif self.kernel_paral_patches:
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            # ----------------------
+            # Thread across kernels
+            # ----------------------
+            with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as kernel_executor:
+                kernel_futures = [kernel_executor.submit(self.process_kernel_paral_patches, k, encrypted_patches) for k in range(num_kernels)]
+                for f in kernel_futures:
+                    k, results = f.result()
+                    decrypted_maps[k, :] = torch.tensor(results, device=device)
+            x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
         else:
             # Process each batch
             feature_maps_batch = []
