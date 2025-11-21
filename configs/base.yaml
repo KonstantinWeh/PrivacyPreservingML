@@ -21,10 +21,6 @@ model:
   k2: 3
   k3: 3
   dropout: 0.5
-  debug_first_conv:
-    compare: true                   # set true to print center-region comparisons
-    center_window: 5                 # size of the printed center window
-    example_batch: 0                 # which batch index to print
 optimizations:
   precrypted: true           # default behavior of IPFECNN.forward()
   optimized_ipfe: true       # set true to use optimized IPFE (needs to be true for all following optimizations)

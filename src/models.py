@@ -166,7 +166,7 @@ class IPFECNN(nn.Module):
         pad   = self.backbone.conv1.padding[0]
         stride= self.backbone.conv1.stride[0]
         B, _, H, W = x.shape
-
+        print("x shape:", x.shape)
 
 
         unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
@@ -184,7 +184,8 @@ class IPFECNN(nn.Module):
                 encrypted  = self.ipfe.encrypt(patch_int)
                 encrypted_image.append(encrypted)
             encrypted_patches.append(encrypted_image)
-        
+        print("length of encrypted_patches:", len(encrypted_patches))
+        print("length of encrypted_patches[0][0]:", len(encrypted_patches[0][0]))
         return encrypted_patches
     
 
@@ -198,22 +199,49 @@ class IPFECNN(nn.Module):
         return p_idx, decrypted_val
 
     def process_kernel_paral_patches(self, k, encrypted_patches):
+        """
+        Decrypt one kernel across all batches, parallelizing over patches within each batch.
+
+        Returns
+        -------
+        k : int
+            Kernel index.
+        results : list[list[float]]
+            Outer list has length B (batches), inner lists have length num_patches.
+        """
         sk_y = self.sk_y_array[k]
         y_vec = self.y_array[k]
         bias = self.biases[k].item()
+
+        B = len(encrypted_patches)
         num_patches = len(encrypted_patches[0])
 
-        kernel_results = [0] * num_patches
+        results = []
 
-        # Thread across patches
-        with ThreadPoolExecutor(max_workers=min(num_patches, 8)) as patch_executor:
-            patch_futures = [patch_executor.submit(self.process_patch, p_idx, encrypted_patches[0][p_idx], sk_y, y_vec, bias)
-                                for p_idx in range(num_patches)]
-            for f in patch_futures:
-                p_idx, val = f.result()
-                kernel_results[p_idx] = val
+        # Iterate over batches; for each batch, parallelize across patches
+        for b in range(B):
+            kernel_results = [0] * num_patches
 
-        return k, kernel_results
+            # Thread across patches for this batch
+            with ThreadPoolExecutor(max_workers=min(num_patches, 8)) as patch_executor:
+                patch_futures = [
+                    patch_executor.submit(
+                        self.process_patch,
+                        p_idx,
+                        encrypted_patches[b][p_idx],
+                        sk_y,
+                        y_vec,
+                        bias,
+                    )
+                    for p_idx in range(num_patches)
+                ]
+                for f in patch_futures:
+                    p_idx, val = f.result()
+                    kernel_results[p_idx] = val
+
+            results.append(kernel_results)
+
+        return k, results
 
     # ----------------------
     # Helper function for one kernel
@@ -267,33 +295,55 @@ class IPFECNN(nn.Module):
         Wout = int((W + 2 * pad - ksize) / stride + 1)
 
         if self.kernel_parallelization:
-            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            # (B, num_kernels, num_patches)
+            decrypted_maps = torch.zeros(B, num_kernels, num_patches, device=device)
 
             # ----------------------
             # Threaded execution across kernels
             # ----------------------
             with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as executor:
-                futures = [executor.submit(self.process_kernel, k, encrypted_patches) for k in range(num_kernels)]
+                futures = [
+                    executor.submit(self.process_kernel, k, encrypted_patches)
+                    for k in range(num_kernels)
+                ]
                 for f in futures:
-                    k, results = f.result()
-                    for p in range(num_patches):
-                        decrypted_maps[k, :] = torch.tensor(results[0], device=device)
-            x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
+                    k, results = f.result()          # results: list of length B
+                    for b in range(B):
+                        # results[b]: list length num_patches
+                        decrypted_maps[b, k, :] = torch.tensor(results[b], device=device)
+
+            # (B, num_kernels, Hout, Wout)
+            x_ipfe = decrypted_maps.view(B, num_kernels, Hout, Wout)
         elif self.kernel_patches_parallelization:
-            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            # (B, num_kernels, num_patches)
+            decrypted_maps = torch.zeros(B, num_kernels, num_patches, device=device)
+
             # ----------------------
-            # Thread across kernels
+            # Thread across kernels; inside each kernel, patches are parallelized
             # ----------------------
             with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as kernel_executor:
-                kernel_futures = [kernel_executor.submit(self.process_kernel_paral_patches, k, encrypted_patches) for k in range(num_kernels)]
+                kernel_futures = [
+                    kernel_executor.submit(self.process_kernel_paral_patches, k, encrypted_patches)
+                    for k in range(num_kernels)
+                ]
                 for f in kernel_futures:
-                    k, results = f.result()
-                    decrypted_maps[k, :] = torch.tensor(results, device=device)
-            x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
+                    k, results = f.result()  # results: list of length B, each inner list len num_patches
+                    for b in range(B):
+                        decrypted_maps[b, k, :] = torch.tensor(results[b], device=device)
+
+            # (B, num_kernels, Hout, Wout)
+            x_ipfe = decrypted_maps.view(B, num_kernels, Hout, Wout)
         elif self.batch_parallelization:
-            ct0_array = np.array([np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)])
-            cts_array = np.array([np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)])
-            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            # Flatten all batches and patches into a single dimension for numba decryption
+            ct0_array = np.array(
+                [np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)]
+            )
+            cts_array = np.array(
+                [np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)]
+            )
+
+            # (B, num_kernels, num_patches)
+            decrypted_maps = torch.zeros(B, num_kernels, num_patches, device=device)
 
             # Loop over kernels
             for k in range(num_kernels):
@@ -302,30 +352,51 @@ class IPFECNN(nn.Module):
                 bias = float(self.biases[k].item())
 
                 # Batch decrypt all patches using Numba
-                decrypted_vals = decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p)
+                decrypted_vals = decrypt_patches_batch(
+                    ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p
+                )
 
-                # Scale and add bias
-                decrypted_maps[k, :] = torch.tensor(decrypted_vals / self.S_y + bias, device=device)
+                # Scale, add bias, and reshape to (B, num_patches)
+                decrypted_vals_tensor = (
+                    torch.tensor(decrypted_vals, device=device) / self.S_y + bias
+                ).view(B, num_patches)
 
-            # Reshape to (1, num_kernels, H, W)
-            x_ipfe = decrypted_maps.view(1, num_kernels, H, W)
+                # Store per batch
+                for b in range(B):
+                    decrypted_maps[b, k, :] = decrypted_vals_tensor[b]
+
+            # (B, num_kernels, Hout, Wout)
+            x_ipfe = decrypted_maps.view(B, num_kernels, Hout, Wout)
         elif self.batch_kernels_parallelization:
-            ct0_array = np.array([np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)])
-            cts_array = np.array([np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)])
-            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-            with ThreadPoolExecutor(max_workers=min(num_kernels, os.cpu_count() or 4)) as executor:
-                futures = [executor.submit(self.decrypt_kernel, k, ct0_array, cts_array) for k in range(num_kernels)]
-                for f in futures:
-                    k, vals = f.result()
-                    decrypted_maps[k, :] = torch.tensor(vals, device=device)
+            # Flatten all batches and patches into a single dimension for numba decryption
+            ct0_array = np.array(
+                [np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)]
+            )
+            cts_array = np.array(
+                [np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)]
+            )
 
-                # Reshape to CNN feature map
-            x_ipfe = decrypted_maps.view(1, num_kernels, H, W)
+            # (B, num_kernels, num_patches)
+            decrypted_maps = torch.zeros(B, num_kernels, num_patches, device=device)
+
+            with ThreadPoolExecutor(max_workers=min(num_kernels, os.cpu_count() or 4)) as executor:
+                futures = [
+                    executor.submit(self.decrypt_kernel, k, ct0_array, cts_array)
+                    for k in range(num_kernels)
+                ]
+                for f in futures:
+                    k, vals = f.result()  # flat array length B * num_patches
+                    vals_tensor = torch.tensor(vals, device=device).view(B, num_patches)
+                    for b in range(B):
+                        decrypted_maps[b, k, :] = vals_tensor[b]
+
+            # Reshape to CNN feature map: (B, num_kernels, Hout, Wout)
+            x_ipfe = decrypted_maps.view(B, num_kernels, Hout, Wout)
 
 
         else:
             # Process each batch
-            feature_maps_batch = []
+            feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
             for b in range(B):
                 decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
                 
@@ -336,10 +407,9 @@ class IPFECNN(nn.Module):
                         # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
                         decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
                         decrypted_maps[k, p] = decrypted
-                
                 # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
                 feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
-                feature_maps_batch.append(feature_maps_b)
+                feature_maps_batch[b] = feature_maps_b
             x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
         return x_ipfe
 
