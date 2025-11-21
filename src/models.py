@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .altered_ipfe import IPFE
+from .optimized_cnn_ipfe import IPFE as OptimizedIPFE
+from .optimized_cnn_ipfe import decrypt_patches_batch
+from concurrent.futures import ThreadPoolExecutor
+import numpy as np
+
 import matplotlib.pyplot as plt
 
 # ---- shared builder ----
@@ -78,11 +83,15 @@ class IPFECNN(nn.Module):
     from conv1 weights and can run the first conv either via IPFE (encrypted=True) or
     via the regular conv1 (encrypted=False).
     """
-    def __init__(self, cfg, ipfe_impl=None):
+    def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
         self.backbone = build_backbone(cfg)   # SAME layers as LightweightCNN
-        self.ipfe = ipfe_impl if ipfe_impl is not None else IPFE(cfg.get("model", {}).get("prime", 1000000007))
+
+        if cfg["optimizations"]["optimized_ipfe"]:
+            self.ipfe = OptimizedIPFE(cfg.get("model", {}).get("prime", 1000000007))
+        else:
+            self.ipfe = IPFE(cfg.get("model", {}).get("prime", 1000000007))
         
 
         # --- encryption configuration ---
@@ -160,8 +169,6 @@ class IPFECNN(nn.Module):
         patches = unfold(x)  # shape: (B, in_ch*ksize*ksize, H*W) with stride/padding applied
         num_patches = patches.shape[-1]
 
-        # Each encrypted patch is a tuple (ct0, ct) where ct0 is scalar and ct is list of length encryption_length
-        # Flatten to shape (B, num_patches, encryption_length + 1)
         encrypted_patches = []
         for b in range(B):
             patches_b = patches[b].T  # (num_patches, in_ch*ksize*ksize)
@@ -170,16 +177,38 @@ class IPFECNN(nn.Module):
                 patch = patches_b[p]
                 patch_int = [int(val.item()) % (self.ipfe.p - 1) for val in patch]
 
-                encrypted_patch = self.ipfe.encrypt(patch_int)
-                # Flatten tuple (ct0, ct) to [ct0] + ct
-                ct0, ct = encrypted_patch
-                flattened = [ct0] + ct
-                encrypted_image.append(flattened)
+                encrypted  = self.ipfe.encrypt(patch_int)
+                encrypted_image.append(encrypted)
             encrypted_patches.append(encrypted_image)
         
-        # Convert to torch tensor: (B, num_patches, encryption_length + 1)
-        encrypted_patches_tensor = torch.tensor(encrypted_patches, dtype=torch.long)
-        return encrypted_patches_tensor
+        return encrypted_patches
+    
+
+    # ----------------------
+    # Helper function for a single patch
+    # not yet tested (requires different process kernel)
+    # ----------------------
+    def process_patch(self, p_idx, patch, sk_y, y_vec, bias):
+        val = self.ipfe.decrypt(patch, sk_y, y_vec, max_ip=self.ipfe.p)
+        decrypted_val = (val / 10000.0) + bias
+        return p_idx, decrypted_val
+
+    # ----------------------
+    # Helper function for one kernel
+    # ----------------------
+    def process_kernel(self, k, encrypted_patches):
+        sk_y = int(self.sk_y_array[k])
+        y_vec = [int(v) for v in self.y_array[k]]
+        bias = self.biases[k].item()
+        results = []
+        for p_idx, patch in enumerate(encrypted_patches):
+            # Decrypt patch
+            ct0, ct = patch[:1].detach().cpu().numpy()[0], patch[1:].detach().cpu().numpy()
+            print("ct.shape: ", ct.shape)
+            val = self.ipfe.decrypt((ct0, ct), sk_y, y_vec, max_ip=self.ipfe.p)
+            decrypted_val = (val / self.S_y) + bias  # scale + bias
+            results.append(decrypted_val)
+        return k, results
 
 
     # ---------- encrypted first conv ----------
@@ -191,8 +220,9 @@ class IPFECNN(nn.Module):
             encrypted_patches = self.encrypt_data(x)  # shape: (B, num_patches, encryption_length + 1)
         else:
             encrypted_patches = x
-        
-        B = encrypted_patches.shape[0]
+    
+
+        B = len(encrypted_patches)
         
         ksize = self.backbone.conv1.kernel_size[0]
         pad   = self.backbone.conv1.padding[0]
@@ -201,37 +231,44 @@ class IPFECNN(nn.Module):
         assert self._ipfe_ready, "Call load_from_lightweight(...) before encrypted forward."
         device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
         
-        num_patches = encrypted_patches.shape[1]
+        num_patches = len(encrypted_patches[0])
         num_kernels = len(self.sk_y_array)
         
         # Calculate output dimensions
         Hout = int((H + 2 * pad - ksize) / stride + 1)
         Wout = int((W + 2 * pad - ksize) / stride + 1)
 
-        # Process each batch
-        feature_maps_batch = []
-        for b in range(B):
+        if self.kernel_parallelization:
             decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-            
-            for k in range(num_kernels):
-                for p in range(num_patches):
-                    # Reconstruct tuple (ct0, ct) from flattened tensor
-                    flattened_patch = encrypted_patches[b, p].cpu().tolist()
-                    ct0 = flattened_patch[0]
-                    ct = flattened_patch[1:]
-                    encrypted_patch_tuple = (ct0, ct)
-                    
-                    decrypted_scaled = self.ipfe.decrypt(encrypted_patch_tuple, self.sk_y_array[k], self.y_array[k])
-                    # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
-                    decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
-                    decrypted_maps[k, p] = decrypted
-            
-            # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
-            feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
-            feature_maps_batch.append(feature_maps_b)
+
+            # ----------------------
+            # Threaded execution across kernels
+            # ----------------------
+            with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as executor:
+                futures = [executor.submit(self.process_kernel, k, encrypted_patches) for k in range(num_kernels)]
+                for f in futures:
+                    k, results = f.result()
+                    decrypted_maps[k, :] = torch.tensor(results, device=device)
+            feature_maps_batch = [decrypted_maps.view(1, num_kernels, Hout, Wout)]
+        else:
+            # Process each batch
+            feature_maps_batch = []
+            for b in range(B):
+                decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+                
+                for k in range(num_kernels):
+                    for p in range(num_patches):
+                        ct0, ct = encrypted_patches[b][p]
+                        decrypted_scaled = self.ipfe.decrypt((ct0, ct), self.sk_y_array[k], self.y_array[k])
+                        # (sum(x_i*y_i)*10000)/10000 -> sum(x_i*y_i); add bias
+                        decrypted = (decrypted_scaled / (self.S_y)) + self.biases[k].item()
+                        decrypted_maps[k, p] = decrypted
+                
+                # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
+                feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
+                feature_maps_batch.append(feature_maps_b)
 
         x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
-
         return x_ipfe
 
     # ---------- full forward ----------

@@ -1,4 +1,40 @@
 from math import isqrt
+from numba import njit
+import math
+
+@njit
+def mod_pow_numba(a, b, p):
+    """Compute (a ** b) % p using binary exponentiation (Numba-friendly)."""
+    result = 1
+    a = a % p
+    while b > 0:
+        if b & 1:
+            result = (result * a) % p
+        a = (a * a) % p
+        b >>= 1
+    return result
+
+@njit
+def mod_inv_numba(a, p):
+    """Modular inverse using Fermat's little theorem (works since p is prime)."""
+    return mod_pow_numba(a, p - 2, p)
+
+@njit
+def bsgs_numba(g, h, p, max_range):
+    """Discrete log solver (small message range)"""
+    m = int(math.ceil(math.sqrt(max_range)))
+    table = {}
+    e = 1
+    for j in range(m):
+        table[e] = j
+        e = (e * g) % p
+    factor = mod_pow_numba(g, m * (p - 2), p)  # g^-m mod p
+    gamma = h
+    for i in range(m):
+        if gamma in table:
+            return i * m + table[gamma]
+        gamma = (gamma * factor) % p
+    return -1
 
 def inv_mod(a, p):
     return pow(a, p - 2, p)

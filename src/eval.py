@@ -32,8 +32,6 @@ def evaluate_top1(model, loader, device, precrypted):
             batch_iter = loader
             
         for x, y in batch_iter:
-            x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
-            print(f"x: {x}")
             print(f"y: {y}")
             pred = model(x).argmax(dim=1)
             print(f"pred: {pred}")
