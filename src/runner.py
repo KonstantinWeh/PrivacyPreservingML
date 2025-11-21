@@ -4,7 +4,7 @@ import os
 
 from .seed import set_seed
 from .data import make_mnist_loaders
-from .models import LightweightCNN, IPFECNN
+from .models import PlainCNN, IPFECNN
 from .train import fit
 from .eval import evaluate_top1
 from .utils import make_run_dir, save_config, save_checkpoint
@@ -23,8 +23,8 @@ def load_cfg(path_list):
     return cfg
 
 def build_model(cfg):
-    if cfg["model"]["name"] == "light":
-        return LightweightCNN(cfg)
+    if cfg["model"]["name"] == "plain":
+        return PlainCNN(cfg)
     elif cfg["model"]["name"] == "ipfe":
         return IPFECNN(cfg)
     else:
@@ -43,20 +43,21 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
     run_name_prefix = f"k{kernel_size}_conv{num_conv_layers}"
     run_name = cfg.get("save", {}).get("run_name", "run")
     out_dir = cfg.get("save", {}).get("out_dir", "results")
+    model_name = cfg.get("model", {}).get("name", "unknown")
     optimizations = cfg.get("optimizations", {})
     optimizations_str = ""
-    if optimizations["kernel_parallelization"]:
-        optimizations_str += "kernel_parallelization"
-    elif optimizations["kernel_patches_parallelization"]:
-        optimizations_str += "kernel_patches_parallelization"
-    elif optimizations["batch_parallelization"]:
-        optimizations_str += "batch_parallelization"
-    elif optimizations["batch_kernels_parallelization"]:
-        optimizations_str += "batch_kernels_parallelization"
+    if optimizations["kernel_parallelization"] and model_name == "ipfe":
+        optimizations_str += "_kernel_parallelization"
+    elif optimizations["kernel_patches_parallelization"] and model_name == "ipfe":
+        optimizations_str += "_kernel_patches_parallelization"
+    elif optimizations["batch_parallelization"] and model_name == "ipfe":
+        optimizations_str += "_batch_parallelization"
+    elif optimizations["batch_kernels_parallelization"] and model_name == "ipfe":
+        optimizations_str += "_batch_kernels_parallelization"
     else:
-        optimizations_str += "none"
+        optimizations_str += ""
 
-    txt_path = f"{out_dir}/{run_name_prefix}_{optimizations_str}.txt"
+    txt_path = f"{out_dir}/{run_name_prefix}_{model_name}{optimizations_str}.txt"
     os.makedirs(out_dir, exist_ok=True)
     with open(txt_path, "w") as f:
         f.write(f"Run Name: {run_name_prefix}_{run_name}\n")
@@ -81,9 +82,9 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", default="./PrivacyPreservingML/configs/base.yaml")
+    ap.add_argument("--cfg", default="configs/base.yaml")
     ap.add_argument("--save_weights", action="store_true")
-    ap.add_argument("--weights_path", default="./PrivacyPreservingML/results/mnist/light_k1-3_conv3.pt")
+    ap.add_argument("--weights_path", default=None)
     args = ap.parse_args()
 
     cfg = load_cfg([args.cfg])
@@ -99,7 +100,7 @@ def main():
     print(f"Total parameters: {total_params:,}")
 
     if args.weights_path:
-        model.load_from_lightweight(args.weights_path)
+        model.load_from_checkpoint(args.weights_path)
         print(f"Weights loaded from: {args.weights_path}")
     else:
         print("No weights path provided, training from scratch")
@@ -114,8 +115,7 @@ def main():
 
     # Evaluate (test set)
     print("Evaluating on test set...")
-    precrypted = cfg["optimizations"]["precrypted"]
-    test_metrics = evaluate_top1(model, loaders["test"], device=str(device), precrypted=precrypted)
+    test_metrics = evaluate_top1(model, loaders["test"], device=str(device), cfg=cfg)
     print(f"Test set size: {len(loaders['test'].dataset)}")
     print(f"Eval seconds: {test_metrics['eval_seconds']:.2f}")
     print(f"Test Top-1: {test_metrics['top1']:.2f}%")

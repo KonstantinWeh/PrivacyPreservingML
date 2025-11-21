@@ -7,7 +7,7 @@ from .optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import os
-import matplotlib.pyplot as plt
+
 
 # ---- shared builder ----
 def build_backbone(cfg):
@@ -43,20 +43,20 @@ def build_backbone(cfg):
             return x
     return _Backbone()
 
-class LightweightCNN(nn.Module):
+class PlainCNN(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.backbone = build_backbone(cfg)
     @torch.no_grad()
-    def load_from_lightweight(self, path_or_state, map_location="cpu"):
+    def load_from_checkpoint(self, path_or_state, map_location="cpu"):
         """
-        Load state_dict saved from a LightweightCNN checkpoint.
+        Load state_dict saved from a PlainCNN checkpoint.
         """
         if isinstance(path_or_state, (str, bytes)):
             src = torch.load(path_or_state, map_location=map_location)
         else:
             src = path_or_state
-        # The backbone of LightweightCNN is registered under 'backbone.*'
+        # The backbone of PlainCNN is registered under 'backbone.*'
         if "state_dict" in src:
             state_dict = src["state_dict"]
         else:
@@ -71,27 +71,27 @@ class LightweightCNN(nn.Module):
         # Only load backbone weights
         backbone_weights = {k.replace("backbone.", ""): v for k, v in cleaned_dict.items() if k.startswith("backbone.")}
         self.backbone.load_state_dict(backbone_weights, strict=False)
-        print("Loaded weights into LightweightCNN backbone from checkpoint.")
+        print("Loaded weights into PlainCNN backbone from checkpoint.")
     def forward(self, x):
         x = x.to(torch.float32)
         return self.backbone.forward_body(x)
 
 class IPFECNN(nn.Module):
     """
-    Shares the exact same backbone as LightweightCNN.
-    After loading weights from the trained LightweightCNN, it builds IPFE materials
+    Shares the exact same backbone as PlainCNN.
+    After loading weights from the trained PlainCNN, it builds IPFE materials
     from conv1 weights and can run the first conv either via IPFE (encrypted=True) or
     via the regular conv1 (encrypted=False).
     """
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self.backbone = build_backbone(cfg)   # SAME layers as LightweightCNN
+        self.backbone = build_backbone(cfg)   # SAME layers as PlainCNN
 
         if cfg["optimizations"]["optimized_ipfe"]:
-            self.ipfe = OptimizedIPFE(cfg.get("model", {}).get("prime", 1000000007))
+            self.ipfe = OptimizedIPFE(cfg["ipfe"]["prime"])
         else:
-            self.ipfe = IPFE(cfg.get("model", {}).get("prime", 1000000007))
+            self.ipfe = IPFE(cfg["ipfe"]["prime"])
         
 
         # --- encryption configuration ---
@@ -124,11 +124,11 @@ class IPFECNN(nn.Module):
         self.sk_y_array = None
         self.biases = None
 
-    # ---------- weight import from LightweightCNN ----------
+    # ---------- weight import from PlainCNN ----------
     @torch.no_grad()
-    def load_from_lightweight(self, path_or_state, map_location="cpu"):
+    def load_from_checkpoint(self, path_or_state, map_location="cpu"):
         """
-        Load state_dict saved from LightweightCNN (same naming under 'backbone.*').
+        Load state_dict saved from PlainCNN (same naming under 'backbone.*').
         Also prepares IPFE materials from conv1 weights.
         """
         if isinstance(path_or_state, (str, bytes)):
@@ -141,7 +141,7 @@ class IPFECNN(nn.Module):
 
         self._prepare_ipfe_from_conv1()
         print("sk_ys created")
-        print("IPFE ready, successfully loaded weights from lightweightcnn")
+        print("IPFE ready, successfully loaded weights from plaincnn")
 
     @torch.no_grad()
     def _prepare_ipfe_from_conv1(self):
@@ -191,7 +191,6 @@ class IPFECNN(nn.Module):
 
     # ----------------------
     # Helper function for a single patch
-    # not yet tested (requires different process kernel)
     # ----------------------
     def process_patch(self, p_idx, patch, sk_y, y_vec, bias):
         val = self.ipfe.decrypt(patch, sk_y, y_vec, max_ip=self.ipfe.p)
@@ -284,7 +283,7 @@ class IPFECNN(nn.Module):
         pad   = self.backbone.conv1.padding[0]
         stride= self.backbone.conv1.stride[0]
 
-        assert self._ipfe_ready, "Call load_from_lightweight(...) before encrypted forward."
+        assert self._ipfe_ready, "Call load_from_checkpoint(...) before encrypted forward."
         device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
         
         num_patches = len(encrypted_patches[0])
@@ -410,7 +409,7 @@ class IPFECNN(nn.Module):
                 # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
                 feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
                 feature_maps_batch[b] = feature_maps_b
-            x_ipfe = torch.stack(feature_maps_batch, dim=0)  # (B, num_kernels, Hout, Wout)
+            x_ipfe = feature_maps_batch
         return x_ipfe
 
     # ---------- full forward ----------
@@ -418,7 +417,7 @@ class IPFECNN(nn.Module):
         x = self.first_conv_forward(x, precrypted=self.precrypted)
         x = self.backbone.pool1(F.relu(self.backbone.bn1(x)))
 
-        # remaining layers are the same as LightweightCNN
+        # remaining layers are the same as PlainCNN
         x = self.backbone.pool2(F.relu(self.backbone.bn2(self.backbone.conv2(x))))
         x = self.backbone.pool3(F.relu(self.backbone.bn3(self.backbone.conv3(x))))
         x = x.view(x.size(0), -1)

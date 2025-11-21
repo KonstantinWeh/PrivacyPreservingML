@@ -3,13 +3,13 @@ from tqdm import tqdm
 from .timing import timed
 
 @torch.no_grad()
-def evaluate_top1(model, loader, device, precrypted):
+def evaluate_top1(model, loader, device, cfg):
     model.eval()
     correct, total = 0, 0
     
     # Pre-encrypt all batches outside timer if needed (to exclude encryption from timing)
     t_encrypt_elapsed = 0.0
-    if precrypted:
+    if cfg["optimizations"]["precrypted"] and cfg["model"]["name"] == "ipfe":
         print("Pre-encrypting all batches...")
         with timed(device=device) as t_encrypt:
             encrypted_batches = []
@@ -42,6 +42,6 @@ def evaluate_top1(model, loader, device, precrypted):
     
     acc = 100.0 * correct / max(1, total)
     result = {"top1": acc, "eval_seconds": t_eval.elapsed}
-    if precrypted:
+    if cfg["optimizations"]["precrypted"] and cfg["model"]["name"] == "ipfe":
         result["encrypt_seconds"] = t_encrypt_elapsed
     return result

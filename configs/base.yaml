@@ -1,7 +1,7 @@
 seed: 1337
 device: "cpu"
 ipfe:
-  prime: 1000000007
+  prime: 4590007
   encryption_length: 9
 data:
   name: "MNIST"
@@ -11,7 +11,7 @@ data:
   download: true
   max_test_samples: 2 #000 # Limit test set to first N samples (None for all samples)
 model:
-  name: "ipfe" # "light" for plain and "ipfe" for IPFE
+  name: "ipfe" # "plain" for plain and "ipfe" for IPFE
   in_channels: 1
   num_classes: 10
   c1: 16
@@ -26,8 +26,8 @@ optimizations:
   optimized_ipfe: true       # set true to use optimized IPFE (needs to be true for all following optimizations)
   kernel_parallelization: false       # set true to use kernel parallelization
   kernel_patches_parallelization: false
-  batch_parallelization: false
-  batch_kernels_parallelization: true
+  batch_parallelization: true
+  batch_kernels_parallelization: false
 train:
   epochs: 3
   lr: 0.0005

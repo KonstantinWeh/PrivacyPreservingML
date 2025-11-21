@@ -1,11 +1,12 @@
 Run Name: k3_conv3_mnist
-Model Name: light
+Model Name: plain
 Kernel Size: 3
 Num Convs: 3
 Config File: configs/base.yaml
 Device: cpu
 Total Parameters: 98,666
-Trained From Scratch
+Optimizations: 
+Weights Loaded From: results/mnist/plain_k1-3_conv3.pt
 Test set size: 10
 Test top1: 100.0
-Test eval_seconds: 9.545093300010194
+Test eval_seconds: 7.979276999999456
