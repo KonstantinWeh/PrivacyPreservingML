@@ -14,12 +14,8 @@ model:
   name: "ipfe" # "plain" for plain and "ipfe" for IPFE
   in_channels: 1
   num_classes: 10
-  c1: 16
-  c2: 32
-  c3: 64
-  k1: 3 
-  k2: 3
-  k3: 3
+  c: [16, 32, 64]
+  k: [3, 3, 3]
   dropout: 0.5
 optimizations:
   precrypted: true           # default behavior of IPFECNN.forward()

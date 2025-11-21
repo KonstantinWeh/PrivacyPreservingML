@@ -11,26 +11,33 @@ import os
 
 # ---- shared builder ----
 def build_backbone(cfg):
-    c = cfg["model"]
+    m = cfg["model"]
+    # Channel configuration and kernel sizes as lists for easier scaling
+    channels = m["c"]          # e.g. [16, 32, 64]
+    kernels = m["k"]           # e.g. [3, 3, 3]
+    in_channels = m["in_channels"]
+    num_classes = m["num_classes"]
+    dropout_p = m.get("dropout", 0.5)
+
     class _Backbone(nn.Module):
         def __init__(self):
             super().__init__()
-            self.conv1 = nn.Conv2d(c["in_channels"], c["c1"], kernel_size=c["k1"], padding=1)
-            self.bn1   = nn.BatchNorm2d(c["c1"])
+            self.conv1 = nn.Conv2d(in_channels, channels[0], kernel_size=kernels[0], padding=1)
+            self.bn1   = nn.BatchNorm2d(channels[0])
             self.pool1 = nn.MaxPool2d(2, 2)
 
-            self.conv2 = nn.Conv2d(c["c1"], c["c2"], kernel_size=c["k2"], padding=1)
-            self.bn2   = nn.BatchNorm2d(c["c2"])
+            self.conv2 = nn.Conv2d(channels[0], channels[1], kernel_size=kernels[1], padding=1)
+            self.bn2   = nn.BatchNorm2d(channels[1])
             self.pool2 = nn.MaxPool2d(2, 2)
 
-            self.conv3 = nn.Conv2d(c["c2"], c["c3"], kernel_size=c["k3"], padding=1)
-            self.bn3   = nn.BatchNorm2d(c["c3"])
+            self.conv3 = nn.Conv2d(channels[1], channels[2], kernel_size=kernels[2], padding=1)
+            self.bn3   = nn.BatchNorm2d(channels[2])
             self.pool3 = nn.MaxPool2d(2, 2)
 
             # for MNIST 28x28 → 14x14 → 7x7 → 3x3 after 3 pools
-            self.fc1 = nn.Linear(c["c3"] * 3 * 3, 128)
-            self.dropout = nn.Dropout(c.get("dropout", 0.5))
-            self.fc2 = nn.Linear(128, c["num_classes"])
+            self.fc1 = nn.Linear(channels[2] * 3 * 3, 128)
+            self.dropout = nn.Dropout(dropout_p)
+            self.fc2 = nn.Linear(128, num_classes)
 
         def forward_body(self, x):
             x = self.pool1(F.relu(self.bn1(self.conv1(x))))
@@ -95,8 +102,9 @@ class IPFECNN(nn.Module):
         
 
         # --- encryption configuration ---
-        k1 = cfg["model"].get("k1", 3)
-        self.encryption_length = k1 * k1
+        # use kernel size of first conv layer (k[0])
+        first_kernel = cfg["model"]["k"][0]
+        self.encryption_length = first_kernel * first_kernel
 
         self.ipfe.setup(self.encryption_length)
         print(f"IPFE setup done, with length: {self.encryption_length}")

@@ -37,9 +37,13 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
     import os
 
     model_cfg = cfg.get("model", {})
-    kernel_size = model_cfg.get("k1", "unknown")
+    # First kernel size from list-based config
+    k_list = model_cfg.get("k", None)
+    kernel_size = k_list[0] if isinstance(k_list, (list, tuple)) and len(k_list) > 0 else "unknown"
     model_name = model_cfg.get("name", "unknown")
-    num_conv_layers = sum(1 for key in model_cfg.keys() if key.startswith("c") and key[1:].isdigit())
+    # Number of conv layers is the length of channel list
+    c_list = model_cfg.get("c", None)
+    num_conv_layers = len(c_list) if isinstance(c_list, (list, tuple)) else 0
     run_name_prefix = f"k{kernel_size}_conv{num_conv_layers}"
     run_name = cfg.get("save", {}).get("run_name", "run")
     out_dir = cfg.get("save", {}).get("out_dir", "results")

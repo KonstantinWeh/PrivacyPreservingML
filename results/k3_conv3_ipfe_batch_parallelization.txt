@@ -9,5 +9,5 @@ Optimizations: _batch_parallelization
 Weights Loaded From: results/mnist/plain_k1-3_conv3.pt
 Test set size: 2
 Test top1: 100.0
-Test eval_seconds: 10.960624600000301
-Test encrypt_seconds: 14.999293299999408
+Test eval_seconds: 4.656093300000066
+Test encrypt_seconds: 6.250625600001513

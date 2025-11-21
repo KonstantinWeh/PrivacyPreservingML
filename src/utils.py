@@ -21,7 +21,7 @@ def save_checkpoint(path: Path, model, tag=None, cfg=None):
         path: Directory to save the checkpoint
         model: Model to save
         tag: Optional tag name for the file. If None, will generate from cfg:
-             - Format: {model_name}_k1-{k1}_conv{num_layers}
+             - Format: {model_name}_k1-{k_first}_conv{num_layers}
              - Example: light_k1-3_conv3.pt
         cfg: Optional config dict to extract model name and architecture params
     """
@@ -31,15 +31,17 @@ def save_checkpoint(path: Path, model, tag=None, cfg=None):
             # Get model name
             model_name = model_cfg.get("name", model.__class__.__name__.lower())
             
-            # Get k1 (kernel size of first conv)
-            k1 = model_cfg.get("k1", None)
+            # Get first kernel size from list k
+            k_list = model_cfg.get("k", None)
+            k_first = k_list[0] if isinstance(k_list, (list, tuple)) and len(k_list) > 0 else None
             
-            # Count number of convolution layers (c1, c2, c3, ...)
-            num_conv_layers = sum(1 for key in model_cfg.keys() if key.startswith("c") and key[1:].isdigit())
+            # Number of convolution layers from length of c list
+            c_list = model_cfg.get("c", None)
+            num_conv_layers = len(c_list) if isinstance(c_list, (list, tuple)) else 0
             
-            # Build tag: {model_name}_k1-{k1}_conv{num_layers}
-            if k1 is not None and num_conv_layers > 0:
-                tag = f"{model_name}_k1-{k1}_conv{num_conv_layers}"
+            # Build tag: {model_name}_k1-{k_first}_conv{num_layers}
+            if k_first is not None and num_conv_layers > 0:
+                tag = f"{model_name}_k1-{k_first}_conv{num_conv_layers}"
             elif model_name:
                 tag = model_name
             else:
@@ -73,10 +75,12 @@ def find_checkpoint(checkpoint_dir: Path, model_name: str = None, cfg: dict = No
         if "model" in cfg:
             model_cfg = cfg["model"]
             base_name = model_cfg.get("name", "model")
-            k1 = model_cfg.get("k1", None)
-            num_conv_layers = sum(1 for key in model_cfg.keys() if key.startswith("c") and key[1:].isdigit())
-            if k1 is not None and num_conv_layers > 0:
-                model_name = f"{base_name}_k1-{k1}_conv{num_conv_layers}"
+            k_list = model_cfg.get("k", None)
+            k_first = k_list[0] if isinstance(k_list, (list, tuple)) and len(k_list) > 0 else None
+            c_list = model_cfg.get("c", None)
+            num_conv_layers = len(c_list) if isinstance(c_list, (list, tuple)) else 0
+            if k_first is not None and num_conv_layers > 0:
+                model_name = f"{base_name}_k1-{k_first}_conv{num_conv_layers}"
             else:
                 model_name = base_name
     
