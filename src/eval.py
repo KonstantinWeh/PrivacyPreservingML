@@ -1,4 +1,5 @@
 import torch
+from tqdm import tqdm
 from .timing import timed
 
 @torch.no_grad()
@@ -30,8 +31,9 @@ def evaluate_top1(model, loader, device, precrypted):
             batch_iter = batches_to_process
         else:
             batch_iter = loader
-            
-        for x, y in batch_iter:
+
+        # Show evaluation progress with tqdm
+        for x, y in tqdm(batch_iter, desc="Evaluating", unit="batch"):
             print(f"y: {y}")
             pred = model(x).argmax(dim=1)
             print(f"pred: {pred}")

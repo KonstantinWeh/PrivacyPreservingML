@@ -9,7 +9,7 @@ data:
   batch_size: 64
   num_workers: 2
   download: true
-  max_test_samples: 1 #000 # Limit test set to first N samples (None for all samples)
+  max_test_samples: 2 #000 # Limit test set to first N samples (None for all samples)
 model:
   name: "ipfe" # "light" for plain and "ipfe" for IPFE
   in_channels: 1
@@ -30,8 +30,8 @@ optimizations:
   optimized_ipfe: true       # set true to use optimized IPFE (needs to be true for all following optimizations)
   kernel_parallelization: false       # set true to use kernel parallelization
   kernel_patches_parallelization: false
-  batch_parallelization: true
-  batch_kernels_parallelization: false
+  batch_parallelization: false
+  batch_kernels_parallelization: true
 train:
   epochs: 3
   lr: 0.0005

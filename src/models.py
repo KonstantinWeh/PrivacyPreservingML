@@ -6,7 +6,7 @@ from .optimized_cnn_ipfe import IPFE as OptimizedIPFE
 from .optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
-
+import os
 import matplotlib.pyplot as plt
 
 # ---- shared builder ----
@@ -232,6 +232,12 @@ class IPFECNN(nn.Module):
             results.append(patch_results)
         return k, results
 
+    def decrypt_kernel(self, k, ct0_array, cts_array):
+        sk_y = int(self.sk_y_array[k])
+        y_vec = np.array(self.y_array[k], dtype=np.int64)
+        bias = float(self.biases[k].item())
+        decrypted_vals = decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p)
+        return k, decrypted_vals / self.S_y + bias
 
     # ---------- encrypted first conv ----------
     def first_conv_forward(self, x, precrypted: bool):
@@ -285,9 +291,9 @@ class IPFECNN(nn.Module):
                     decrypted_maps[k, :] = torch.tensor(results, device=device)
             x_ipfe = decrypted_maps.view(1, num_kernels, Hout, Wout)
         elif self.batch_parallelization:
-            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
             ct0_array = np.array([np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)])
             cts_array = np.array([np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)])
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
 
             # Loop over kernels
             for k in range(num_kernels):
@@ -303,7 +309,18 @@ class IPFECNN(nn.Module):
 
             # Reshape to (1, num_kernels, H, W)
             x_ipfe = decrypted_maps.view(1, num_kernels, H, W)
+        elif self.batch_kernels_parallelization:
+            ct0_array = np.array([np.int64(encrypted_patches[b][p][0]) for b in range(B) for p in range(num_patches)])
+            cts_array = np.array([np.int64(encrypted_patches[b][p][1]) for b in range(B) for p in range(num_patches)])
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            with ThreadPoolExecutor(max_workers=min(num_kernels, os.cpu_count() or 4)) as executor:
+                futures = [executor.submit(self.decrypt_kernel, k, ct0_array, cts_array) for k in range(num_kernels)]
+                for f in futures:
+                    k, vals = f.result()
+                    decrypted_maps[k, :] = torch.tensor(vals, device=device)
 
+                # Reshape to CNN feature map
+            x_ipfe = decrypted_maps.view(1, num_kernels, H, W)
 
 
         else:

@@ -39,20 +39,34 @@ def save_metrics_to_txt(cfg, args, device, total_params, test_metrics, loaders, 
     model_cfg = cfg.get("model", {})
     kernel_size = model_cfg.get("k1", "unknown")
     model_name = model_cfg.get("name", "unknown")
-    num_convs = 4  # based on the architecture in models.py
-    run_name_prefix = f"k{kernel_size}_conv{num_convs}"
+    num_conv_layers = sum(1 for key in model_cfg.keys() if key.startswith("c") and key[1:].isdigit())
+    run_name_prefix = f"k{kernel_size}_conv{num_conv_layers}"
     run_name = cfg.get("save", {}).get("run_name", "run")
     out_dir = cfg.get("save", {}).get("out_dir", "results")
-    txt_path = f"{out_dir}/{run_name_prefix}_{run_name}_{model_name}.txt"
+    optimizations = cfg.get("optimizations", {})
+    optimizations_str = ""
+    if optimizations["kernel_parallelization"]:
+        optimizations_str += "kernel_parallelization"
+    elif optimizations["kernel_patches_parallelization"]:
+        optimizations_str += "kernel_patches_parallelization"
+    elif optimizations["batch_parallelization"]:
+        optimizations_str += "batch_parallelization"
+    elif optimizations["batch_kernels_parallelization"]:
+        optimizations_str += "batch_kernels_parallelization"
+    else:
+        optimizations_str += "none"
+
+    txt_path = f"{out_dir}/{run_name_prefix}_{optimizations_str}.txt"
     os.makedirs(out_dir, exist_ok=True)
     with open(txt_path, "w") as f:
         f.write(f"Run Name: {run_name_prefix}_{run_name}\n")
         f.write(f"Model Name: {model_name}\n")
         f.write(f"Kernel Size: {kernel_size}\n")
-        f.write(f"Num Convs: {num_convs}\n")
+        f.write(f"Num Convs: {num_conv_layers}\n")
         f.write(f"Config File: {args.cfg}\n")
         f.write(f"Device: {device}\n")
         f.write(f"Total Parameters: {total_params:,}\n")
+        f.write(f"Optimizations: {optimizations_str}\n")
         if args.weights_path:
             f.write(f"Weights Loaded From: {args.weights_path}\n")
         else:
