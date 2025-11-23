@@ -1,0 +1,35 @@
+seed: 1337
+device: "cpu"
+ipfe:
+  prime: 4590007
+  encryption_length: 9
+data:
+  name: "MNIST"
+  root: "./data"
+  batch_size: 64
+  num_workers: 2
+  download: true
+  max_test_samples: 64 #000 # Limit test set to first N samples (None for all samples)
+model:
+  name: "plain" # "plain" for plain and "ipfe" for IPFE
+  in_channels: 1
+  num_classes: 10
+  c: [8, 16, 32]
+  k: [3, 3, 3]
+  stride: [2, 1, 1]
+  padding: [1, 1, 1]
+  dropout: 0.5
+optimizations:
+  precrypted: true           # default behavior of IPFECNN.forward()
+  kernel_parallelization: false       # set true to use kernel parallelization
+  kernel_patches_parallelization: false
+  batch_parallelization: true
+  batch_kernels_parallelization: false
+train:
+  epochs: 3
+  lr: 0.0005
+  optimizer: "adam"
+  print_every: 200      # batches
+save:
+  out_dir: "results"
+  models_dir: "models"

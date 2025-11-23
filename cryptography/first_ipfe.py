@@ -2,7 +2,11 @@ import random
 
 import numpy as np
 
+<<<<<<< HEAD:ip_functional_encryption.py
+from .math_helper import inv_mod, factor, bsgs, find_generator
+=======
 from utils.math_helper import inv_mod, bsgs, find_generator
+>>>>>>> main:cryptography/first_ipfe.py
 import matplotlib.pyplot as plt
 
 class IPFE:

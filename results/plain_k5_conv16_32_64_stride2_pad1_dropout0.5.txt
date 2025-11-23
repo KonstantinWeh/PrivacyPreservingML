@@ -1,0 +1,10 @@
+Model Name: plain
+Tag: k5_conv16_32_64_stride2_pad1_dropout0.5
+Total Parameters: 33,386
+Optimizations: 
+Trained From Scratch
+Train train_seconds: 52.50909110000066
+Train history: [{'epoch': 1, 'loss': 0.3327281646458293, 'acc': 90.415}, {'epoch': 2, 'loss': 0.08460248692203433, 'acc': 97.55333333333333}, {'epoch': 3, 'loss': 0.05969000218246481, 'acc': 98.22166666666666}]
+Test set size: 2
+Test top1: 100.0
+Test eval_seconds: 6.792044600002555

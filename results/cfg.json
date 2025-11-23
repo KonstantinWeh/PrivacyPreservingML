@@ -1,0 +1,50 @@
+{
+  "seed": 1337,
+  "device": "cpu",
+  "ipfe": {
+    "prime": 4590007,
+    "encryption_length": 9
+  },
+  "data": {
+    "name": "MNIST",
+    "root": "./data",
+    "batch_size": 64,
+    "num_workers": 2,
+    "download": true,
+    "max_test_samples": 2
+  },
+  "model": {
+    "name": "plain",
+    "in_channels": 1,
+    "num_classes": 10,
+    "c": [
+      16,
+      32,
+      64
+    ],
+    "k": [
+      3,
+      3,
+      3
+    ],
+    "dropout": 0.5
+  },
+  "optimizations": {
+    "precrypted": true,
+    "optimized_ipfe": true,
+    "kernel_parallelization": false,
+    "kernel_patches_parallelization": false,
+    "batch_parallelization": true,
+    "batch_kernels_parallelization": false
+  },
+  "train": {
+    "epochs": 3,
+    "lr": 0.0005,
+    "optimizer": "adam",
+    "print_every": 200
+  },
+  "save": {
+    "out_dir": "results",
+    "models_dir": "models"
+  }
+}
