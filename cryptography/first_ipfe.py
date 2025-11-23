@@ -2,7 +2,11 @@ import random
 
 import numpy as np
 
+<<<<<<< HEAD:ip_functional_encryption.py
 from .math_helper import inv_mod, factor, bsgs, find_generator
+=======
+from utils.math_helper import inv_mod, bsgs, find_generator
+>>>>>>> main:cryptography/first_ipfe.py
 import matplotlib.pyplot as plt
 
 class IPFE:
@@ -15,7 +19,7 @@ class IPFE:
 
     # ✅ Checked
     def setup(self, l):
-        # setup function for ipfe
+        # setup function for cryptography
         # (G, p, g) <- GroupGen(1^l) (p passed as parameter)
         # and s = (s_1, ..., s_l) <- Z_l^p
         # return mpk = (h_i = g^si) and msk = s
