@@ -3,7 +3,7 @@ Tag: k3_conv16_32_64_stride1_pad1_dropout0.5
 Total Parameters: 98,666
 Optimizations: _batch_parallelization
 Weights Loaded From: models\k3_conv16_32_64_stride1_pad1_dropout0.5.pt
-Test set size: 2
-Test top1: 100.0
-Test eval_seconds: 3.90924840000298
-Test encrypt_seconds: 5.12240810000003
+Test set size: 64
+Test top1: 98.4375
+Test eval_seconds: 97.86203850000311
+Test encrypt_seconds: 9.851655799997388
