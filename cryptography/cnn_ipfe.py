@@ -1,10 +1,7 @@
 import random
 import numpy as np
-<<<<<<<< HEAD:src/altered_ipfe.py
-from .math_helper import inv_mod, factor, bsgs, find_generator
-========
+
 from utils.math_helper import inv_mod, bsgs, find_generator, mod_pow_numba, mod_inv_numba, bsgs_numba
->>>>>>>> main:cryptography/cnn_ipfe.py
 import matplotlib.pyplot as plt
 import torch
 

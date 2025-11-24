@@ -15,6 +15,7 @@ def build_backbone(cfg):
     # Channel configuration, kernel sizes, strides and padding as lists for easier scaling
     channels = m["c"]          # e.g. [16, 32, 64]
     kernels = m["k"]           # e.g. [3, 3, 3]
+    pooling = m["p"]
     strides = m.get("stride", [1] * len(channels))
     paddings = m.get("padding", [0] * len(channels))
     in_channels = m["in_channels"]
@@ -24,34 +25,35 @@ def build_backbone(cfg):
     class _Backbone(nn.Module):
         def __init__(self):
             super().__init__()
-
             # Build conv / BN / pool stacks dynamically from config
-            n_layers = len(channels)
+            self.n_layers = len(channels)
             in_ch = in_channels
 
             # Assume MNIST 28x28 input; update H, W as we add layers
             H, W = 28, 28
 
-            for i in range(n_layers):
+            for i in range(self.n_layers):
                 out_ch = channels[i]
                 k = kernels[i]
                 s = strides[i] if i < len(strides) else 1
                 p = paddings[i] if i < len(paddings) else 0
+                pool_bool = pooling[i] if i < len(pooling) else 1
 
                 conv = nn.Conv2d(in_ch, out_ch, kernel_size=k, stride=s, padding=p)
                 bn = nn.BatchNorm2d(out_ch)
-                pool = nn.MaxPool2d(2, 2)
 
-                # Register as attributes conv1, conv2, ..., so existing code (conv1) still works
-                setattr(self, f"conv{i+1}", conv)
-                setattr(self, f"bn{i+1}", bn)
-                setattr(self, f"pool{i+1}", pool)
+                setattr(self, f"conv{i + 1}", conv)
+                setattr(self, f"bn{i + 1}", bn)
 
-                # Track spatial size after conv and pool
                 H = int((H + 2 * p - k) / s + 1)
                 W = int((W + 2 * p - k) / s + 1)
-                H = int((H - 2) / 2 + 1)
-                W = int((W - 2) / 2 + 1)
+
+                if pool_bool == 1:
+                    pool = nn.MaxPool2d(2, 2)
+                    setattr(self, f"pool{i + 1}", pool)
+
+                    H = int((H - 2) / 2 + 1)
+                    W = int((W - 2) / 2 + 1)
 
                 in_ch = out_ch
 
@@ -67,8 +69,12 @@ def build_backbone(cfg):
             while hasattr(self, f"conv{i}"):
                 conv = getattr(self, f"conv{i}")
                 bn = getattr(self, f"bn{i}")
-                pool = getattr(self, f"pool{i}")
-                x = pool(F.relu(bn(conv(x))))
+                x = F.relu(bn(conv(x)))
+
+                if hasattr(self, f"pool{i}"):
+                    pool = getattr(self, f"pool{i}")
+                    x = pool(x)
+
                 i += 1
 
             x = x.view(x.size(0), -1)
@@ -123,20 +129,6 @@ class IPFECNN(nn.Module):
         self.cfg = cfg
         self.backbone = build_backbone(cfg)   # SAME layers as PlainCNN
 
-        if sum([cfg["optimizations"]["kernel_parallelization"], cfg["optimizations"]["kernel_patches_parallelization"], cfg["optimizations"]["batch_parallelization"], cfg["optimizations"]["batch_kernels_parallelization"]]) > 1:
-            self.ipfe = OptimizedIPFE(cfg["ipfe"]["prime"])
-        else:
-            self.ipfe = IPFE(cfg["ipfe"]["prime"])
-        
-
-        # --- encryption configuration ---
-        # use kernel size of first conv layer (k[0])
-        first_kernel = cfg["model"]["k"][0]
-        self.encryption_length = first_kernel * first_kernel
-
-        self.ipfe.setup(self.encryption_length)
-        print(f"IPFE setup done, with length: {self.encryption_length}")
-
         # runtime flags (can be driven from cfg)
         mcfg = cfg.get("model", {})
         dbg = mcfg.get("debug_first_conv", {})
@@ -149,9 +141,25 @@ class IPFECNN(nn.Module):
         self.kernel_patches_parallelization = bool(self.optimizations.get("kernel_patches_parallelization"))
         self.batch_parallelization = bool(self.optimizations.get("batch_parallelization"))
         self.batch_kernels_parallelization = bool(self.optimizations.get("batch_kernels_parallelization"))
-        if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization, self.batch_kernels_parallelization]) > 1:
-            raise ValueError("Only one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization can be true")
-        
+
+        if sum([self.kernel_parallelization, self.kernel_patches_parallelization, self.batch_parallelization,
+                self.batch_kernels_parallelization]) > 1:
+            raise ValueError(
+                "Only one of kernel_parallelization, kernel_patches_parallelization, batch_parallelization, batch_kernels_parallelization can be true")
+
+        if self.kernel_parallelization or self.kernel_patches_parallelization or self.batch_parallelization or self.batch_kernels_parallelization:
+            self.ipfe = OptimizedIPFE(cfg["ipfe"]["prime"])
+        else:
+            self.ipfe = IPFE(cfg["ipfe"]["prime"])
+
+        # --- encryption configuration ---
+        # use kernel size of first conv layer (k[0])
+        first_kernel = cfg["model"]["k"][0]
+        self.encryption_length = first_kernel * first_kernel
+
+        self.ipfe.setup(self.encryption_length)
+        print(f"IPFE setup done, with length: {self.encryption_length}")
+
         # prepared after loading weights
         self._ipfe_ready = False
         self.y_array = None
@@ -449,13 +457,27 @@ class IPFECNN(nn.Module):
     # ---------- full forward ----------
     def forward(self, x):
         x = self.first_conv_forward(x, precrypted=self.precrypted)
-        x = self.backbone.pool1(F.relu(self.backbone.bn1(x)))
+        x = F.relu(self.backbone.bn1(x))
+        # Apply pool1 only if it exists
+        if hasattr(self.backbone, "pool1"):
+            x = self.backbone.pool1(x)
 
-        # remaining layers are the same as PlainCNN
-        x = self.backbone.pool2(F.relu(self.backbone.bn2(self.backbone.conv2(x))))
-        x = self.backbone.pool3(F.relu(self.backbone.bn3(self.backbone.conv3(x))))
+        # Loop starts at conv2
+        for i in range(1, self.backbone.n_layers):
+            # Apply conv + bn + relu
+            conv = getattr(self.backbone, f"conv{i + 1}")  # conv2, conv3, ...
+            bn = getattr(self.backbone, f"bn{i + 1}")
+            x = F.relu(bn(conv(x)))
+
+            # Apply pooling if it exists
+            pool_attr = f"pool{i + 1}"
+            if hasattr(self.backbone, pool_attr):
+                pool_layer = getattr(self.backbone, pool_attr)
+                x = pool_layer(x)
+
         x = x.view(x.size(0), -1)
         x = F.relu(self.backbone.fc1(x))
         x = self.backbone.dropout(x)
         x = self.backbone.fc2(x)
+
         return x
