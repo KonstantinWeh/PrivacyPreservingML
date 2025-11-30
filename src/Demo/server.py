@@ -1,121 +1,19 @@
 import socket
 import json
-import random
-import numpy as np
-from ..math_helper import inv_mod, factor, bsgs, find_generator
-from utils.math_helper import inv_mod, bsgs, find_generator, mod_pow_numba, mod_inv_numba, bsgs_numba
-import matplotlib.pyplot as plt
-import torch
-import numpy as np
+from ..math_helper import inv_mod, bsgs
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-import torchvision.transforms as transforms
-from torchvision.datasets import MNIST
-from cryptography.cnn_ipfe import IPFE
+import struct
 
 HOST = "127.0.0.1"
 PORT = 5000
 
-model_path = f"cnn_model.pth"
-
-def handle(command, data):
-    """
-    command: string
-    data:    Python dict parsed from JSON
-    """
-    if command == "WEIGHTS":
-        return {"status": "OK"}
-
-    elif command == "INITIALIZE":
-        username = data.get("username")
-        age = data.get("age")
-
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        ipfe_model = IPFECNN(num_classes=10, prime=4590007).to(device)
-        print(f"IPFE-CNN model created on device: {device}")
-
-        return {"status": "created", "user": username, "age": age}
-
-    elif command == "INFERENCE":
-
-        test_ipfe_cnn(ipfe_model, encrypted_data, labels, H, W, device)
-
-        return {"result": a + b}
-
-    return {"error": "unknown command"}
-
-
-def parse_message(raw):
-    """
-    Expect format: COMMAND|{json}
-    """
-    try:
-        command, json_str = raw.split("|", 1)
-        data = json.loads(json_str)
-        return command.strip(), data
-    except Exception as e:
-        return None, None
-
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.bind((HOST, PORT))
-    s.listen()
-    print(f"Server listening on {HOST}:{PORT}")
-
-    conn, addr = s.accept()
-    with conn:
-        print(f"Connected by {addr}")
-
-        while True:
-            raw = conn.recv(4096).decode()
-            if not raw:
-                break
-
-            command, data = parse_message(raw)
-            if command is None:
-                conn.sendall(b'{"error":"bad format"}')
-                continue
-
-            response = handle(command, data)
-            conn.sendall(json.dumps(response).encode())
-
-
-def test_ipfe_cnn(model, encrypted_data, labels, H, W, device):
-    """Test the IPFE-CNN with a sample query vector"""
-    model.eval()
-
-    with torch.no_grad():
-        print("Testing IPFE-CNN forward pass on encrypted data...")
-        print(f"Labels of test samples: {labels.cpu().numpy()}")
-
-        try:
-            outputs = model.forward(encrypted_data, encrypted=True, H=28, W=28)
-            _, predicted = outputs.max(1)
-
-            print(f"Predictions on encrypted data: {predicted.cpu().numpy()}")
-
-            correct = (predicted == labels).sum().item()
-            total = labels.size(0)
-            print(f"Accuracy on encrypted samples: {100 * correct / total:.2f}% ({correct}/{total})")
-
-
-        except Exception as e:
-            print(f"Encrypted IPFE forward pass failed: {e}")
-
 class IPFE:
-    def __init__(self, l):
-        self.p = None
-        self.g = None
-        self.length = l
-        self.mpk = None
-
-    def setup(self, prime, generator, mpk):
-
+    def __init__(self, prime, generator, l):
         self.p = prime
         self.g = generator
-        self.mpk = mpk
+        self.length = l
 
     def decrypt(self, ct, sk_y, y):
         ct0, cts = ct
@@ -144,11 +42,10 @@ class IPFE:
         return ip_signed
 
 class IPFECNN(nn.Module):
-    def __init__(self, num_classes=10, length):
+    def __init__(self, device, num_classes=10):
         super(IPFECNN, self).__init__()
         self.prime = None
         self.ipfe = None
-        self.encryption_length = length
 
         # First convolutional block - this will be used with IPFE
         self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
@@ -171,7 +68,7 @@ class IPFECNN(nn.Module):
         self.fc2 = nn.Linear(128, num_classes)
 
         #copy weights from the trained model
-        self.load_state_dict(torch.load(model_path, map_location=device))
+        self.load_state_dict(torch.load("src/Demo/model.pth", map_location=device))
         print("weights copied from trained model")
 
         self.weights = self.conv1.weight.data
@@ -181,13 +78,10 @@ class IPFECNN(nn.Module):
         print("biases saved")
         self.sk_y_array = None
 
-    def setup(self, prime):
-        self.ipfe = IPFE(prime)
-        self.ipfe.setup(self.encryption_length)
-        print("IPFE setup done, with length:", self.encryption_length)
-
-        self.sk_y_array = [self.ipfe.key_derive(y) for y in self.y_array]
-        print("sk_ys created")
+    def setup(self, prime, generator, length, sk_y):
+        self.ipfe = IPFE(prime, generator, length)
+        self.sk_y_array = sk_y
+        print("Ipfe setup done and sk_ys saved")
 
     def first_conv_forward(self, x):
         num_patches = len(x)
@@ -207,7 +101,6 @@ class IPFECNN(nn.Module):
                 decrypted_maps[k, p] = decrypted
         return torch.stack([decrypted_maps.view(num_kernels, 28, 28)], dim=0)
 
-
     def forward(self, x,):
         outputs = []
         for sample in x:
@@ -222,5 +115,111 @@ class IPFECNN(nn.Module):
             outputs.append(feat)
         return torch.cat(outputs, dim=0)
 
+def recvall(conn, n):
+    """Receive exactly n bytes."""
+    data = b''
+    while len(data) < n:
+        packet = conn.recv(n - len(data))
+        if not packet:
+            return None
+        data += packet
+    return data
 
+def receive_message(conn):
+    """Receive one length-prefixed message."""
+    header = recvall(conn, 4)
+    if not header:
+        return None
+
+    (length,) = struct.unpack("!I", header)
+    data = recvall(conn, length)
+    if data is None:
+        return None
+
+    return data.decode("utf-8")
+
+def send_message(conn, obj):
+    """Send Python dict or string back to the client."""
+    # Convert Python reply (dict, list, string) to JSON text
+    if not isinstance(obj, (str, bytes)):
+        obj = json.dumps(obj)
+    if isinstance(obj, str):
+        obj = obj.encode("utf-8")
+
+    header = struct.pack("!I", len(obj))
+    conn.sendall(header)
+    conn.sendall(obj)
+
+def parse_message(raw):
+    """
+    Expect format: COMMAND|{json}
+    """
+    print(f"Received raw message: {raw}")
+    try:
+        command, json_str = raw.split("|", 1)
+        data = json.loads(json_str)
+        return command.strip(), data
+    except Exception as e:
+        return None, None
+
+def handle(model, command, data):
+    if command == "WEIGHTS":
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        new_model = IPFECNN(device=device, num_classes=10)
+        weights = new_model.y_array
+        return new_model, {"weights": weights}
+
+    elif command == "INITIALIZE":
+        p = data.get("prime")
+        g = data.get("generator")
+        l = data.get("length")
+        sk_y = data.get("sk_y")
+        model.setup(prime=p, generator=g, length=l, sk_y=sk_y)
+        return model, {"status": "initialized"}
+
+    elif command == "INFERENCE":
+        data_set = data.get("dataset")
+
+        model.eval()
+
+        with torch.no_grad():
+            print("IPFE-CNN forward pass on encrypted data...")
+
+            try:
+                outputs = model.forward(data_set)
+                _, predicted = outputs.max(1)
+
+                print(f"Predictions on encrypted data: {predicted.cpu().numpy()}")
+
+                return model, {"predictions": predicted.cpu().numpy().tolist()}
+
+            except Exception as e:
+                print(f"Encrypted IPFE forward pass failed: {e}")
+        return model, {"error": "inference failed"}
+
+    return model, {"error": "unknown command"}
+
+
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+    s.bind((HOST, PORT))
+    s.listen()
+    print(f"Server listening on {HOST}:{PORT}")
+    current_model = None
+    conn, addr = s.accept()
+    with conn:
+        print(f"Connected by {addr}")
+
+        while True:
+            msg = receive_message(conn)
+            if msg is None:
+                print("Client disconnected.")
+                break
+
+            print("FULL MESSAGE RECEIVED:")
+
+            command, data = parse_message(msg)
+            model, response = handle(current_model, command, data)
+            current_model = model
+
+            send_message(conn, response)
 

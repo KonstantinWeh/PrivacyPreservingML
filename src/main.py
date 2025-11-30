@@ -1,13 +1,12 @@
 import argparse, yaml, torch
 from pathlib import Path
-import os
 
 from .seed import set_seed
 from .data import make_mnist_loaders
 from .models import PlainCNN, IPFECNN
 from .train import fit
 from .eval import evaluate_top1
-from .utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
+from utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
 
 def load_cfg(path_list):
     cfg = {}
