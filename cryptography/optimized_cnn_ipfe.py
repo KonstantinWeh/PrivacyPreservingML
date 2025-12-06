@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from utils.math_helper import inv_mod, bsgs, find_generator, mod_pow_numba, mod_inv_numba, bsgs_numba
+from utils import find_generator, mod_pow_numba, mod_inv_numba, bsgs_numba
 import matplotlib.pyplot as plt
 import torch
 from numba import njit

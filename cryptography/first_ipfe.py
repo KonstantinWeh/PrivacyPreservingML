@@ -1,7 +1,7 @@
 import random
 
 import numpy as np
-from utils.math_helper import inv_mod, bsgs, find_generator
+from utils import inv_mod, bsgs, find_generator
 import matplotlib.pyplot as plt
 
 class IPFE:
