@@ -6,7 +6,7 @@ from .data import make_mnist_loaders
 from .models import PlainCNN, IPFECNN
 from .train import fit
 from .eval import evaluate_top1
-from utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
+from .utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
 
 def load_cfg(path_list):
     cfg = {}
@@ -103,7 +103,7 @@ def main():
     try:
         ckpt_path = find_checkpoint(cfg)
         model = load_model_from_cfg(cfg)
-        print(f"Model loaded from checkpoint: {ckpt_path}")
+        #print(f"Model loaded from checkpoint: {ckpt_path}")
         total_params = sum(p.numel() for p in model.parameters())
         train_metrics = None
     except FileNotFoundError:
@@ -121,7 +121,7 @@ def main():
     # Evaluate (test set)
     print("Evaluating on test set...")
     test_metrics = evaluate_top1(model, loaders["test"], device=str(device), cfg=cfg)
-    print(f"Test set size: {len(loaders['test'].dataset)}")
+    #print(f"Test set size: {len(loaders['test'].dataset)}")
     print(f"Eval seconds: {test_metrics['eval_seconds']:.2f}")
     print(f"Test Top-1: {test_metrics['top1']:.2f}%")
 
@@ -129,4 +129,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    for idx in range(2):
+        print(f"Run ========================= {idx}")
+        main()

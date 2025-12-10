@@ -2,7 +2,6 @@
 # models
 # -------------------------
 models/
-*.pth
 *.pt
 *.onnx
 *.ckpt

@@ -34,9 +34,9 @@ def evaluate_top1(model, loader, device, cfg):
 
         # Show evaluation progress with tqdm
         for x, y in tqdm(batch_iter, desc="Evaluating", unit="batch"):
-            print(f"y: {y}")
+            #print(f"y: {y}")
             pred = model(x).argmax(dim=1)
-            print(f"pred: {pred}")
+            #print(f"pred: {pred}")
             total += y.size(0)
             correct += pred.eq(y).sum().item()
     

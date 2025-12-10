@@ -4,9 +4,9 @@ Repository for the 2025 Integrated Masters Project by Cedric Bohni and Konstanti
 for demo
 
 ```bash
-python -m src.Demo.server.py
+python -m src.Demo.server
 ```
 
 ```bash
-python -m src.Demo.client.py
+python -m src.Demo.client
 ```

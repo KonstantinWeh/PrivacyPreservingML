@@ -111,8 +111,12 @@ class PlainCNN(nn.Module):
             cleaned_dict[k] = v
         # Only load backbone weights
         backbone_weights = {k.replace("backbone.", ""): v for k, v in cleaned_dict.items() if k.startswith("backbone.")}
+        conv1_weight = backbone_weights['conv1.weight']
+        #print("Shape of conv1 weights:", conv1_weight.shape)
+        print(conv1_weight)
+
         self.backbone.load_state_dict(backbone_weights, strict=False)
-        print("Loaded weights into PlainCNN backbone from checkpoint.")
+        #print("Loaded weights into PlainCNN backbone from checkpoint.")
     def forward(self, x):
         x = x.to(torch.float32)
         return self.backbone.forward_body(x)
@@ -158,7 +162,7 @@ class IPFECNN(nn.Module):
         self.encryption_length = first_kernel * first_kernel
 
         self.ipfe.setup(self.encryption_length)
-        print(f"IPFE setup done, with length: {self.encryption_length}")
+        #print(f"IPFE setup done, with length: {self.encryption_length}")
 
         # prepared after loading weights
         self._ipfe_ready = False
@@ -179,11 +183,11 @@ class IPFECNN(nn.Module):
             src = path_or_state
 
         missing, unexpected = self.load_state_dict(src, strict=False)
-        print(f"weights copied from trained model (missing={len(missing)}, unexpected={len(unexpected)})")
+        #print(f"weights copied from trained model (missing={len(missing)}, unexpected={len(unexpected)})")
 
         self._prepare_ipfe_from_conv1()
-        print("sk_ys created")
-        print("IPFE ready, successfully loaded weights from plaincnn")
+        #print("sk_ys created")
+        #print("IPFE ready, successfully loaded weights from plaincnn")
 
     @torch.no_grad()
     def _prepare_ipfe_from_conv1(self):
@@ -195,10 +199,10 @@ class IPFECNN(nn.Module):
         # NOTE: expects in_ch == 1 for MNIST; if >1, the unfold must match.
         # self.y_array = torch.round(w.view(w.size(0), -1) * 10000).long().tolist()
         self.y_array = torch.round(w.view(w.size(0), -1).squeeze(1).view(w.size(0), -1) * self.S_y).long().tolist()
-        print("weights converted to y vectors")
+        #print("weights converted to y vectors")
         self.sk_y_array = [self.ipfe.key_derive(y) for y in self.y_array]
-        print("sk_y_array created:", self.sk_y_array)
-        print("biases saved")
+        #print("sk_y_array created:", self.sk_y_array)
+        #print("biases saved")
         self._ipfe_ready = True
     
     def encrypt_data(self, x):
@@ -226,8 +230,8 @@ class IPFECNN(nn.Module):
                 encrypted  = self.ipfe.encrypt(patch_int)
                 encrypted_image.append(encrypted)
             encrypted_patches.append(encrypted_image)
-        print("length of encrypted_patches:", len(encrypted_patches))
-        print("length of encrypted_patches[0][0]:", len(encrypted_patches[0][0]))
+        #print("length of encrypted_patches:", len(encrypted_patches))
+        #print("length of encrypted_patches[0][0]:", len(encrypted_patches[0][0]))
         return encrypted_patches
     
 
