@@ -1,8 +1,11 @@
 import random
 
 import numpy as np
-from utils import inv_mod, bsgs, find_generator
+from utils.math_helper import inv_mod, bsgs, find_generator
 import matplotlib.pyplot as plt
+
+# First implementation of the DDH IPFE scheme with simple numerical array inputs
+# not made to handle direct usage in a convolutional layer
 
 class IPFE:
     def __init__(self, p):
@@ -12,13 +15,10 @@ class IPFE:
         self.mpk = None
         self.msk = None
 
-    # ✅ Checked
     def setup(self, l):
-        # setup function for cryptography
         # (G, p, g) <- GroupGen(1^l) (p passed as parameter)
         # and s = (s_1, ..., s_l) <- Z_l^p
         # return mpk = (h_i = g^si) and msk = s
-        # see Simple Functional Encryption Schemes for Inner Products, page 8
         self.length = l
         self.g = find_generator(self.p)
         s = [random.randrange(1, self.p - 1) for _ in range(self.length)]
@@ -27,7 +27,6 @@ class IPFE:
         self.mpk = h
         self.msk = s
 
-    # ✅ Checked
     def encrypt(self, x):
         if len(x) != self.length:
             raise ValueError("x length does not match setup length.")
@@ -42,7 +41,6 @@ class IPFE:
 
         return ct0, ct
 
-    # ✅ Checked
     def key_derive(self, y):
         if len(y) != self.length:
             raise ValueError("y length does not match setup length.")
@@ -69,6 +67,7 @@ class IPFE:
 
         return ip
 
+    # used for testing the entier functionality
     def run(self, l, x, y, image=False):
         self.setup(l)
         # ct_0, ct
@@ -90,12 +89,10 @@ class IPFE:
 
 
 if __name__ == "__main__":
-    # choose prime (1^lamda)
     p_input = 104729
-    # p_input = 67
-    # Encrypted vector
+
     x_input = [1000000, 100, 200, 300, 5000]
-    # Calc vector
+
     y_input = [1, 2, 1, 2, -200]
 
     ipfe_demo = IPFE(p_input)

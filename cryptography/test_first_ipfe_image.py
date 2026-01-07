@@ -6,6 +6,8 @@ from torchvision.datasets import MNIST
 from torchvision import transforms
 import torch
 
+# initial test run of the IPFE scheme with image inputs
+
 if __name__ == "__main__":
     class ToTensor255:
         def __call__(self, pic):
@@ -18,7 +20,7 @@ if __name__ == "__main__":
     ])
 
     # Load training and test datasets
-    train_dataset = MNIST(root='./data', train=True, download=True, transform=transform)
+    train_dataset = MNIST(root='../data', train=True, download=True, transform=transform)
 
     print(train_dataset[0])
 
