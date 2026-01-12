@@ -1,5 +1,5 @@
 import numpy as np
-from first_ipfe import IPFE
+from src.cryptography.prototype.first_ipfe import IPFE
 import random
 import matplotlib.pyplot as plt
 from torchvision.datasets import MNIST
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     ])
 
     # Load training and test datasets
-    train_dataset = MNIST(root='../data', train=True, download=True, transform=transform)
+    train_dataset = MNIST(root='../../../data', train=True, download=True, transform=transform)
 
     print(train_dataset[0])
 

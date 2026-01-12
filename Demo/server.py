@@ -116,7 +116,7 @@ class IPFECNN_1(nn.Module):
         self.fc2 = nn.Linear(128, num_classes)
 
         #copy weights from the trained model
-        self.load_state_dict(torch.load("src/Demo/model_1.pth", map_location=device))
+        self.load_state_dict(torch.load("models/demo_model_1.pth", map_location=device))
         print("weights copied from trained model")
 
         self.weights = self.conv1.weight.data
@@ -200,7 +200,7 @@ class IPFECNN_2(nn.Module):
         self.fc2 = nn.Linear(128, num_classes)
 
         #copy weights from the trained model
-        self.load_state_dict(torch.load("src/Demo/model_2.pth", map_location=device))
+        self.load_state_dict(torch.load("models/demo_model_2.pth", map_location=device))
         print("weights copied from trained model")
 
         self.weights = self.conv1.weight.data
@@ -281,7 +281,7 @@ class IPFECNN_3(nn.Module):
         self.fc2 = nn.Linear(128, num_classes)
 
         #copy weights from the trained model
-        self.load_state_dict(torch.load("src/Demo/model_3.pth", map_location=device))
+        self.load_state_dict(torch.load("models/demo_model_3.pth", map_location=device))
         print("weights copied from trained model")
 
         self.weights = self.conv1.weight.data

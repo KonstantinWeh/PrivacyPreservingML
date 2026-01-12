@@ -6,7 +6,7 @@ from src.cnn.data import make_mnist_loaders
 from src.cnn.models import PlainCNN, IPFECNN
 from src.cnn.train import fit
 from src.cnn.eval import evaluate_top1
-from cnn.utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
+from src.cnn.utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
 
 def load_cfg(path_list):
     cfg = {}
@@ -86,19 +86,11 @@ def save_metrics_to_txt(cfg, total_params, test_metrics, loaders, train_metrics)
             f.write(f"Test {k}: {v}\n")
     print(f"Saved metrics to: {txt_path}")
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--cfg", default="configs/base.yaml")
-    ap.add_argument("--save_weights", action="store_true")
-    args = ap.parse_args()
-
-    cfg = load_cfg([args.cfg])
+def main(cfg):
     set_seed(cfg["seed"])
     device = torch.device(cfg["device"] if torch.cuda.is_available() else "cpu")
 
     loaders = make_mnist_loaders(cfg)
-
-    
 
     try:
         ckpt_path = find_checkpoint(cfg)
@@ -129,6 +121,19 @@ def main():
 
 
 if __name__ == "__main__":
-    for idx in range(4):
-        print(f"Run ========================= {idx}")
-        main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--runs", "-r",
+        type=int,
+        default=1,
+        help="Number of times to run the evaluation"
+    )
+    parser.add_argument("--cfg", default="configs/base.yaml")
+    parser.add_argument("--save_weights", action="store_true")
+    args = parser.parse_args()
+
+    cfg = load_cfg([args.cfg])
+
+    for idx in range(args.runs):
+        print(f"Run ========================= {idx + 1}")
+        main(cfg)

@@ -5,9 +5,9 @@ This project contains notebooks to test different privacy-preserving machine lea
 Inner-product functional encryption was used for the functional encryption approach.
 
 ```bash
-python -m src.Demo.server
+python -m Demo.server
 ```
 
 ```bash
-python -m src.Demo.client
+python -m Demo.client
 ```

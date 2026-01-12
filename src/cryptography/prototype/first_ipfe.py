@@ -1,8 +1,11 @@
 import random
+
 import numpy as np
 from src.utils.math_helper import inv_mod, bsgs, find_generator
 import matplotlib.pyplot as plt
-import torch
+
+# First implementation of the DDH IPFE scheme with simple numerical array inputs
+# not made to handle direct usage in a convolutional layer
 
 class IPFE:
     def __init__(self, p):
@@ -12,14 +15,10 @@ class IPFE:
         self.mpk = None
         self.msk = None
 
-    # ✅ Checked
     def setup(self, l):
-        # setup function for cryptography
         # (G, p, g) <- GroupGen(1^l) (p passed as parameter)
         # and s = (s_1, ..., s_l) <- Z_l^p
         # return mpk = (h_i = g^si) and msk = s
-        # see Simple Functional Encryption Schemes for Inner Products, page 8
-
         self.length = l
         self.g = find_generator(self.p)
         s = [random.randrange(1, self.p - 1) for _ in range(self.length)]
@@ -28,7 +27,6 @@ class IPFE:
         self.mpk = h
         self.msk = s
 
-    # ✅ Checked
     def encrypt(self, x):
         if len(x) != self.length:
             raise ValueError("x length does not match setup length.")
@@ -43,7 +41,6 @@ class IPFE:
 
         return ct0, ct
 
-    # ✅ Checked
     def key_derive(self, y):
         if len(y) != self.length:
             raise ValueError("y length does not match setup length.")
@@ -59,6 +56,8 @@ class IPFE:
 
         # ct0^{sk_y}
         denom = pow(ct0, sk_y % (self.p - 1), self.p)
+
+        # compute: prod_i ct_i^{y_i} / ct0^{sk_y}  = g^{<x,y>}
         val = (num * inv_mod(denom, self.p)) % self.p
 
         # discrete log base g to recover <x,y>  (works for small message ranges)
@@ -66,16 +65,12 @@ class IPFE:
         if ip is None:
             raise ValueError("discrete log failed (increase prime or reduce message range).")
 
-        modulus = self.p - 1
-        half = modulus // 2
-        if ip > half:
-            ip_signed = ip - modulus
-        else:
-            ip_signed = ip
+        return ip
 
-        return ip_signed
-
-    def run(self, x, y, bias, scale=1, image=False):
+    # used for testing the entier functionality
+    def run(self, l, x, y, image=False):
+        self.setup(l)
+        # ct_0, ct
         ct = self.encrypt(x)
 
         if image:
@@ -84,42 +79,24 @@ class IPFE:
             plt.show()
             plt.close()
 
-        scaled_y_input = [int(val * scale) for val in y]
-
-        sk_y = self.key_derive(scaled_y_input)
-        ip_scaled = self.decrypt(ct, sk_y, scaled_y_input)
-        ip = ip_scaled / scale
-
+        sk_y = self.key_derive(y)
+        ip = self.decrypt(ct, sk_y, y)
         print("p:", self.p, "g:", self.g)
         print("x:", x)
         print("y:", y)
-        print("scaled y:", scaled_y_input)
-        print("<x, y> (expected):", (sum((xi * yi) for xi, yi in zip(x, y)) + bias))
-        print("<x, y> (decrypted):", ((ip + bias)))
+        print("<x, y> (expected):", sum((xi * yi) for xi, yi in zip(x, y)) % (self.p - 1))
+        print("<x, y> (decrypted):", ip)
 
 
 if __name__ == "__main__":
-    # choose prime (1^lamda)
-    # p_input = 67
-    #p_input = 104729
-    # p_input = 1 000 000 007
-    # p_input = 2300003 # appears safe but im unsure
-    # p_input = 4590007  # should be 100% safe since the range of inner products is less than 4.59 million
-    p_input = 1721257
-    # Encrypted vector
+    p_input = 104729
 
-    x_input = torch.tensor([  0., 133., 254.,   9., 205., 248., 126., 254., 182.])
-    x_input = [(int(val.item()) % (p_input - 1)) for val in x_input]
+    x_input = [1000000, 100, 200, 300, 5000]
 
-    y_input = [-0.0300, -0.0261, -0.0194, 0.0786,  0.3495, -0.0135, -0.3420, -0.1810, -0.2126]
-    scale = 10000
+    y_input = [1, 2, 1, 2, -200]
 
-    # -67.16720803621115
-
-    print(len(x_input))
     ipfe_demo = IPFE(p_input)
-    ipfe_demo.setup(len(x_input))
-    ipfe_demo.run(x_input, y_input, -0.016008036211133003, scale)
+    ipfe_demo.run(len(x_input), x_input, y_input)
 
 
 

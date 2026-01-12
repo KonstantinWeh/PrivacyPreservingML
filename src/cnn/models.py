@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from src.cryptography.altered_ipfe import IPFE
+from src.cryptography.cnn_ipfe import IPFE
 from src.cryptography.optimized_cnn_ipfe import IPFE as OptimizedIPFE
 from src.cryptography.optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
