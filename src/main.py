@@ -1,12 +1,12 @@
 import argparse, yaml, torch
 from pathlib import Path
 
-from .seed import set_seed
-from .data import make_mnist_loaders
-from .models import PlainCNN, IPFECNN
-from .train import fit
-from .eval import evaluate_top1
-from .utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
+from src.utils.seed import set_seed
+from src.cnn.data import make_mnist_loaders
+from src.cnn.models import PlainCNN, IPFECNN
+from src.cnn.train import fit
+from src.cnn.eval import evaluate_top1
+from cnn.utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
 
 def load_cfg(path_list):
     cfg = {}
@@ -129,6 +129,6 @@ def main():
 
 
 if __name__ == "__main__":
-    for idx in range(2):
+    for idx in range(4):
         print(f"Run ========================= {idx}")
         main()

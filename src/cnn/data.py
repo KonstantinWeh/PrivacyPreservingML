@@ -1,6 +1,5 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
-import torch
 
 def make_mnist_loaders(cfg):
     d = cfg["data"]

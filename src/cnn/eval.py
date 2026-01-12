@@ -1,6 +1,6 @@
 import torch
 from tqdm import tqdm
-from .timing import timed
+from src.utils.timing import timed
 
 @torch.no_grad()
 def evaluate_top1(model, loader, device, cfg):

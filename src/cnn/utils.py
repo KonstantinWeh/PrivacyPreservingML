@@ -1,6 +1,5 @@
 import os, json, torch
 from pathlib import Path
-from datetime import datetime
 
 def make_run_dir(cfg):
     """

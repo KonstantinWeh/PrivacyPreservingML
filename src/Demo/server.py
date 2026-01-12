@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import struct
 import numpy as np
 from numba import njit
-from ..math_helper import inv_mod, bsgs, mod_pow_numba, mod_inv_numba, bsgs_numba
+from src.utils.math_helper import mod_pow_numba, mod_inv_numba, bsgs_numba
 
 HOST = "127.0.0.1"
 PORT = 5000

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from .timing import timed
+from src.utils.timing import timed
 
 def train_one_epoch(model, loader, criterion, optimizer, device, print_every=200):
     model.train()

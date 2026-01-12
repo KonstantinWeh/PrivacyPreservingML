@@ -1,7 +1,7 @@
 import socket
 import json
 import random
-from ..math_helper import find_generator
+from src.utils.math_helper import find_generator
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
