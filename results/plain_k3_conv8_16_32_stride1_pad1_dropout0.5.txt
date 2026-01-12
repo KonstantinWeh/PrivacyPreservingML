@@ -1,0 +1,8 @@
+Model Name: plain
+Tag: k3_conv8_16_32_stride1_pad1_dropout0.5
+Total Parameters: 44,282
+Optimizations: 
+Weights Loaded From: models\k3_conv8_16_32_stride1_pad1_dropout0.5.pt
+Test set size: 64
+Test top1: 98.4375
+Test eval_seconds: 6.512951600001543

@@ -5,5 +5,5 @@ Optimizations: _batch_parallelization
 Weights Loaded From: models\k5_conv16_32_64_stride1_pad1_dropout0.5.pt
 Test set size: 64
 Test top1: 100.0
-Test eval_seconds: 148.96684090000053
-Test encrypt_seconds: 15.067322699993383
+Test eval_seconds: 136.7516453999997
+Test encrypt_seconds: 12.71553109999877

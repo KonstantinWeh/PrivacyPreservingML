@@ -1,0 +1,9 @@
+Model Name: ipfe
+Tag: k3_conv16_32_64_stride3_pad1_dropout0.5
+Total Parameters: 33,130
+Optimizations: _batch_kernels_parallelization
+Weights Loaded From: models\k3_conv16_32_64_stride3_pad1_dropout0.5.pt
+Test set size: 64
+Test top1: 96.875
+Test eval_seconds: 13.869899399999667
+Test encrypt_seconds: 7.046156999999766

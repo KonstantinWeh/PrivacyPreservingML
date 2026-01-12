@@ -3,6 +3,6 @@ Tag: k5_conv16_32_64_stride1_pad1_dropout0.5
 Total Parameters: 98,922
 Optimizations: 
 Weights Loaded From: models\k5_conv16_32_64_stride1_pad1_dropout0.5.pt
-Test set size: 10000
-Test top1: 99.07
-Test eval_seconds: 8.113524599997618
+Test set size: 64
+Test top1: 100.0
+Test eval_seconds: 6.584061099998507

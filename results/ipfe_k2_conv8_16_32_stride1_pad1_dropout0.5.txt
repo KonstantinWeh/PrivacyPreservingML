@@ -1,0 +1,9 @@
+Model Name: ipfe
+Tag: k2_conv8_16_32_stride1_pad1_dropout0.5
+Total Parameters: 44,242
+Optimizations: 
+Weights Loaded From: models\k2_conv8_16_32_stride1_pad1_dropout0.5.pt
+Test set size: 64
+Test top1: 96.875
+Test eval_seconds: 194.86463389999972
+Test encrypt_seconds: 8.380531199999496

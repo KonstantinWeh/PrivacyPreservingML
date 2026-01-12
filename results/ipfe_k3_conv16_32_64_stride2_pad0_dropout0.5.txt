@@ -4,6 +4,6 @@ Total Parameters: 33,130
 Optimizations: 
 Weights Loaded From: models\k3_conv16_32_64_stride2_pad0_dropout0.5.pt
 Test set size: 64
-Test top1: 96.875
-Test eval_seconds: 82.4508219000054
-Test encrypt_seconds: 7.304375700005039
+Test top1: 98.4375
+Test eval_seconds: 98.18443339999794
+Test encrypt_seconds: 9.44053310000163

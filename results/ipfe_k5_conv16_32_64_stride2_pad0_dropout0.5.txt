@@ -5,5 +5,5 @@ Optimizations:
 Weights Loaded From: models\k5_conv16_32_64_stride2_pad0_dropout0.5.pt
 Test set size: 64
 Test top1: 98.4375
-Test eval_seconds: 111.56708739999885
-Test encrypt_seconds: 8.020770299997821
+Test eval_seconds: 99.25480160000006
+Test encrypt_seconds: 7.73898399999598
