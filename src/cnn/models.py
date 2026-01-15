@@ -7,6 +7,7 @@ from src.cryptography.optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import os
+from src.cryptography.prime_finder import prime_finder
 
 
 # ---- shared builder ----
@@ -113,7 +114,7 @@ class PlainCNN(nn.Module):
         backbone_weights = {k.replace("backbone.", ""): v for k, v in cleaned_dict.items() if k.startswith("backbone.")}
         conv1_weight = backbone_weights['conv1.weight']
         #print("Shape of conv1 weights:", conv1_weight.shape)
-        print(conv1_weight)
+        prime_finder(conv1_weight)
 
         self.backbone.load_state_dict(backbone_weights, strict=False)
         #print("Loaded weights into PlainCNN backbone from checkpoint.")

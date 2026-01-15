@@ -89,34 +89,85 @@ class IPFE:
         self.g = generator
         self.length = l
 
-class IPFECNN_1(nn.Module):
-    def __init__(self, device, num_classes=10):
-        super(IPFECNN_1, self).__init__()
+class IPFECNN(nn.Module):
+    def __init__(self, version, device, num_classes=10):
+        super(IPFECNN, self).__init__()
         self.prime = None
         self.ipfe = None
+        self.version = version
+        if version == 1:
+            # First convolutional block - this will be used with IPFE
+            self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
+            self.bn1 = nn.BatchNorm2d(16)
+            self.pool1 = nn.MaxPool2d(2, 2)
 
-        # First convolutional block - this will be used with IPFE
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.pool1 = nn.MaxPool2d(2, 2)
+            # Second convolutional block
+            self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(32)
+            self.pool2 = nn.MaxPool2d(2, 2)
 
-        # Second convolutional block
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.pool2 = nn.MaxPool2d(2, 2)
+            # Third convolutional block
+            self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+            self.bn3 = nn.BatchNorm2d(64)
+            self.pool3 = nn.MaxPool2d(2, 2)
 
-        # Third convolutional block
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.pool3 = nn.MaxPool2d(2, 2)
+            # Fully connected layers
+            self.fc1 = nn.Linear(64 * 3 * 3, 128)
+            self.dropout = nn.Dropout(0.5)
+            self.fc2 = nn.Linear(128, num_classes)
 
-        # Fully connected layers
-        self.fc1 = nn.Linear(64 * 3 * 3, 128)
-        self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, num_classes)
+            self.dim_first = 28
+
+        elif version == 2:
+            # First convolutional block - this will be used with IPFE
+            self.conv1 = nn.Conv2d(1, 8, kernel_size=5, stride=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(8)
+
+            # Second convolutional block
+            self.conv2 = nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1)
+            self.bn2 = nn.BatchNorm2d(16)
+            self.pool2 = nn.MaxPool2d(2, 2)
+
+            # Third convolutional block
+            self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+            self.bn3 = nn.BatchNorm2d(32)
+            self.pool3 = nn.MaxPool2d(2, 2)
+
+            self.conv4 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+            self.bn4 = nn.BatchNorm2d(64)
+            self.pool4 = nn.MaxPool2d(2, 2)
+
+            # Fully connected layers
+            self.fc1 = nn.Linear(64 * 1 * 1, 128)
+            self.dropout = nn.Dropout(0.5)
+            self.fc2 = nn.Linear(128, num_classes)
+
+            self.dim_first = 9
+        else:
+            # First convolutional block - this will be used with IPFE
+            self.conv1 = nn.Conv2d(1, 8, kernel_size=3, stride=3, padding=1)  # stride = 2, padding = 0
+            self.bn1 = nn.BatchNorm2d(8)
+            self.pool1 = nn.MaxPool2d(2, 2)
+
+            # Second convolutional block
+            self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(16)
+            self.pool2 = nn.MaxPool2d(2, 2)
+
+            # Third convolutional block
+            self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+            self.bn3 = nn.BatchNorm2d(32)
+            self.pool3 = nn.MaxPool2d(2, 2)
+
+            # Fully connected layers
+            self.fc1 = nn.Linear(32 * 1 * 1, 128)
+            self.dropout = nn.Dropout(0.5)
+            self.fc2 = nn.Linear(128, num_classes)
+
+            self.dim_first = 10
 
         #copy weights from the trained model
-        self.load_state_dict(torch.load("models/demo_model_1.pth", map_location=device))
+        self.load_state_dict(torch.load(f"models/demo_model_{version}.pth", map_location=device))
         print("weights copied from trained model")
 
         self.weights = self.conv1.weight.data
@@ -127,93 +178,10 @@ class IPFECNN_1(nn.Module):
         self.sk_y_array = None
 
     def setup(self, prime, generator, length, sk_y):
+        self.prime = prime
         self.ipfe = IPFE(prime, generator, length)
         self.sk_y_array = sk_y
-        print("Ipfe setup done and sk_ys saved")
-
-    def first_conv_forward(self, x):
-        num_patches = len(x)
-        num_kernels = len(self.sk_y_array)
-        device = next(self.parameters()).device
-
-        ct0_array, cts_array = x
-        num_patches = ct0_array.shape[0]
-
-        decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-
-        # Loop over kernels
-        for k in range(num_kernels):
-            sk_y = int(self.sk_y_array[k])
-            y_vec = np.array(self.y_array[k], dtype=np.int64)
-            bias = float(self.biases[k].item())
-
-            # Batch decrypt all patches using Numba
-            decrypted_vals = decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p)
-
-            # Scale and add bias
-            decrypted_maps[k, :] = torch.tensor(decrypted_vals / 10000.0 + bias, device=device)
-
-        # Reshape to (1, num_kernels, H, W)
-        return torch.stack([decrypted_maps.view(num_kernels, 28, 28)], dim=0)
-
-    def forward(self, x,):
-        outputs = []
-        for sample in x:
-            feat = self.first_conv_forward(sample)
-            feat = self.pool1(F.relu(self.bn1(feat)))
-            feat = self.pool2(F.relu(self.bn2(self.conv2(feat))))
-            feat = self.pool3(F.relu(self.bn3(self.conv3(feat))))
-            feat = feat.view(feat.size(0), -1)
-            feat = F.relu(self.fc1(feat))
-            feat = self.dropout(feat)
-            feat = self.fc2(feat)
-            outputs.append(feat)
-        return torch.cat(outputs, dim=0)
-
-class IPFECNN_2(nn.Module):
-    def __init__(self, device, num_classes=10):
-        super(IPFECNN_2, self).__init__()
-        self.prime = None
-        self.ipfe = None
-
-        # First convolutional block - this will be used with IPFE
-        self.conv1 = nn.Conv2d(1, 8, kernel_size=5, stride=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(8)
-
-        # Second convolutional block
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-        # Third convolutional block
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(32)
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-        self.conv4 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(64)
-        self.pool4 = nn.MaxPool2d(2, 2)
-
-        # Fully connected layers
-        self.fc1 = nn.Linear(64 * 1 * 1, 128)
-        self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, num_classes)
-
-        #copy weights from the trained model
-        self.load_state_dict(torch.load("models/demo_model_2.pth", map_location=device))
-        print("weights copied from trained model")
-
-        self.weights = self.conv1.weight.data
-        self.y_array = torch.round(self.weights.view(self.weights.size(0), -1).squeeze(1).view(self.weights.size(0), -1) * 10000).long().tolist()
-        print("weights converted to y vectors")
-        self.biases = self.conv1.bias
-        print("biases saved")
-        self.sk_y_array = None
-
-    def setup(self, prime, generator, length, sk_y):
-        self.ipfe = IPFE(prime, generator, length)
-        self.sk_y_array = sk_y
-        print("Ipfe setup done and sk_ys saved")
+        print("IPFE setup complete")
 
     def first_conv_forward(self, x):
         num_kernels = len(self.sk_y_array)
@@ -236,103 +204,33 @@ class IPFECNN_2(nn.Module):
             # Scale and add bias
             decrypted_maps[k, :] = torch.tensor(decrypted_vals / 10000.0 + bias, device=device)
 
-        # Reshape to (1, num_kernels, H, W)
-        return decrypted_maps.view(1, num_kernels, 9, 9)
+        return decrypted_maps.view(1, num_kernels, self.dim_first, self.dim_first)
 
-    def forward(self, x,):
+    def _forward_tail_v1_3(self, feat):
+        feat = self.pool1(F.relu(self.bn1(feat)))
+        feat = self.pool2(F.relu(self.bn2(self.conv2(feat))))
+        feat = self.pool3(F.relu(self.bn3(self.conv3(feat))))
+        return feat
+
+    def _forward_tail_v2(self, feat):
+        feat = F.relu(self.bn1(feat))
+        feat = self.pool2(F.relu(self.bn2(self.conv2(feat))))
+        feat = self.pool3(F.relu(self.bn3(self.conv3(feat))))
+        feat = self.pool4(F.relu(self.bn4(self.conv4(feat))))
+        return feat
+
+    def forward(self, x):
         outputs = []
         for sample in x:
             feat = self.first_conv_forward(sample)
-            feat = F.relu(self.bn1(feat))
-            feat = self.pool2(F.relu(self.bn2(self.conv2(feat))))
-            feat = self.pool3(F.relu(self.bn3(self.conv3(feat))))
-            feat = self.pool4(F.relu(self.bn4(self.conv4(feat))))
+            if self.version == 2:
+                feat = self._forward_tail_v2(feat)
+            else:
+                feat = self._forward_tail_v1_3(feat)
             feat = feat.view(feat.size(0), -1)
             feat = F.relu(self.fc1(feat))
             feat = self.dropout(feat)
-            feat = self.fc2(feat)
-            outputs.append(feat)
-        return torch.cat(outputs, dim=0)
-
-class IPFECNN_3(nn.Module):
-    def __init__(self, device, num_classes=10):
-        super(IPFECNN_3, self).__init__()
-        self.prime = None
-        self.ipfe = None
-
-        # First convolutional block - this will be used with IPFE
-        self.conv1 = nn.Conv2d(1, 8, kernel_size=3, stride=3, padding=1)  # stride = 2, padding = 0
-        self.bn1 = nn.BatchNorm2d(8)
-        self.pool1 = nn.MaxPool2d(2, 2)
-
-        # Second convolutional block
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.pool2 = nn.MaxPool2d(2, 2)
-
-        # Third convolutional block
-        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(32)
-        self.pool3 = nn.MaxPool2d(2, 2)
-
-        # Fully connected layers
-        self.fc1 = nn.Linear(32 * 1 * 1, 128)
-        self.dropout = nn.Dropout(0.5)
-        self.fc2 = nn.Linear(128, num_classes)
-
-        #copy weights from the trained model
-        self.load_state_dict(torch.load("models/demo_model_3.pth", map_location=device))
-        print("weights copied from trained model")
-
-        self.weights = self.conv1.weight.data
-        self.y_array = torch.round(self.weights.view(self.weights.size(0), -1).squeeze(1).view(self.weights.size(0), -1) * 10000).long().tolist()
-        print("weights converted to y vectors")
-        self.biases = self.conv1.bias
-        print("biases saved")
-        self.sk_y_array = None
-
-    def setup(self, prime, generator, length, sk_y):
-        self.ipfe = IPFE(prime, generator, length)
-        self.sk_y_array = sk_y
-        print("Ipfe setup done and sk_ys saved")
-
-    def first_conv_forward(self, x):
-        num_patches = len(x)
-        num_kernels = len(self.sk_y_array)
-        device = next(self.parameters()).device
-
-        ct0_array, cts_array = x
-        num_patches = ct0_array.shape[0]
-
-        decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-
-        # Loop over kernels
-        for k in range(num_kernels):
-            sk_y = int(self.sk_y_array[k])
-            y_vec = np.array(self.y_array[k], dtype=np.int64)
-            bias = float(self.biases[k].item())
-
-            # Batch decrypt all patches using Numba
-            decrypted_vals = decrypt_patches_batch(ct0_array, cts_array, sk_y, y_vec, self.ipfe.g, self.ipfe.p)
-
-            # Scale and add bias
-            decrypted_maps[k, :] = torch.tensor(decrypted_vals / 10000.0 + bias, device=device)
-
-        # Reshape to (1, num_kernels, H, W)
-        return decrypted_maps.view(1, num_kernels, 10, 10)
-
-    def forward(self, x,):
-        outputs = []
-        for sample in x:
-            feat = self.first_conv_forward(sample)
-            feat = self.pool1(F.relu(self.bn1(feat)))
-            feat = self.pool2(F.relu(self.bn2(self.conv2(feat))))
-            feat = self.pool3(F.relu(self.bn3(self.conv3(feat))))
-            feat = feat.view(feat.size(0), -1)
-            feat = F.relu(self.fc1(feat))
-            feat = self.dropout(feat)
-            feat = self.fc2(feat)
-            outputs.append(feat)
+            outputs.append(self.fc2(feat))
         return torch.cat(outputs, dim=0)
 
 def recvall(conn, n):
@@ -387,11 +285,11 @@ def handle(model, command, data):
         m = int(data.get("model"))
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if m == 1:
-            new_model = IPFECNN_1(device=device, num_classes=10)
+            new_model = IPFECNN(device=device, version=1, num_classes=10)
         elif m == 2:
-            new_model = IPFECNN_2(device=device, num_classes=10)
+            new_model = IPFECNN(device=device, version=2, num_classes=10)
         else:
-            new_model = IPFECNN_3(device=device, num_classes=10)
+            new_model = IPFECNN(device=device, version=3, num_classes=10)
         weights = new_model.y_array
         return new_model, {"weights": weights}
 
