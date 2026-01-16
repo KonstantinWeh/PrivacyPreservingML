@@ -86,10 +86,9 @@ The file `src/main.py` provides a full test suite for evaluating various **funct
         k2_conv8_16_32_64_stride3_pad1_dropout0.5.pt
 
 3. **Run a baseline test**  
-After training, run the model with a chosen number of test images.  
-Example terminal output:
-   ---
-    
+   After training, run the model with a chosen number of test images.  
+   Example terminal output:
+       
         Run ========================= 1
         Maximum absolute inner product over all slices: 313.33173
         Scaled maximum absolute inner product (x10000): 3.1333172e+06
