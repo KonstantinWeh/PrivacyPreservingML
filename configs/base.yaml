@@ -1,7 +1,7 @@
 seed: 1337
 device: "cpu"
 ipfe:
-  prime: 6285761
+  prime: 5638601
   encryption_length: 4 #2x2 -> 4 #3x3 -> 9 #5x5 ->25
 data:
   name: "MNIST"
@@ -14,11 +14,11 @@ model:
   name: "plain"  # "plain" for plain and "ipfe" for IPFE
   in_channels: 1
   num_classes: 10
-  c: [8, 16, 32, 64]
-  k: [2, 3, 3, 3]
-  p: [0, 1, 1, 1] # 1 for you use pooling. 0 for not # standard is to just have all 1
-  stride: [3, 1, 1, 1]
-  padding: [1, 1, 1, 1]
+  c: [8, 16, 32]
+  k: [2, 3, 3]
+  p: [1, 1, 1] # 1 for you use pooling. 0 for not # standard is to just have all 1
+  stride: [3, 1, 1]
+  padding: [1, 1, 1]
   dropout: 0.5
 optimizations:
   precrypted: true           # default behavior of IPFECNN.forward()
