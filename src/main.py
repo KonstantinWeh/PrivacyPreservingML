@@ -3,7 +3,7 @@ from pathlib import Path
 
 from src.utils.seed import set_seed
 from src.cnn.data import make_mnist_loaders
-from src.cnn.models import PlainCNN, IPFECNN
+from src.cnn.models import PlainCNN, IPFECNN, FHECNN
 from src.cnn.train import fit
 from src.cnn.eval import evaluate_top1
 from src.cnn.utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
@@ -26,6 +26,8 @@ def build_model(cfg):
         return PlainCNN(cfg)
     elif cfg["model"]["name"] == "ipfe":
         return IPFECNN(cfg)
+    elif cfg["model"]["name"] == "fhe":
+        return FHECNN(cfg)
     else:
         raise ValueError("Unknown model.name")
 

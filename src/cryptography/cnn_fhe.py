@@ -87,6 +87,10 @@ if __name__ == "__main__":
                             -0.3420, -0.1810, -0.2126])
 
     fhe_demo = FHE()
-    fhe_demo.setup(len(x_input), scale_bits=30)
+    # if ipfe <= 24 or <= 30
+    # 4096, 8192
+    # 40, 20, 40, or 50, 30, 50
+    # 20 or 25
+    fhe_demo.setup(len(x_input),  poly_modulus_degree=4096, coeff_mod_bit_sizes=[40, 20, 40], scale_bits=20)
     fhe_demo.run(x_input, y_input, bias=-0.016008036211133003)
 

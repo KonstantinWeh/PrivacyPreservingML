@@ -1,23 +1,23 @@
 seed: 1337
 device: "cpu"
 ipfe:
-  prime: 5638601
-  encryption_length: 4 #2x2 -> 4 #3x3 -> 9 #5x5 ->25
+  prime: 6815651
+  encryption_length: 9 #2x2 -> 4 #3x3 -> 9 #5x5 ->25
 data:
   name: "MNIST"
   root: "./data"
   batch_size: 64
   num_workers: 2
   download: true
-  max_test_samples: #000 #Limit test set to first N samples (None for all samples)
+  max_test_samples: 64 #000 #Limit test set to first N samples (None for all samples)
 model:
-  name: "plain"  # "plain" for plain and "ipfe" for IPFE
+  name: "fhe"  # "plain" for plain and "ipfe" for IPFE or "fhe" for FHE
   in_channels: 1
   num_classes: 10
-  c: [8, 16, 32]
-  k: [2, 3, 3]
+  c: [16, 32, 64]
+  k: [3, 3, 3]
   p: [1, 1, 1] # 1 for you use pooling. 0 for not # standard is to just have all 1
-  stride: [3, 1, 1]
+  stride: [1, 1, 1]
   padding: [1, 1, 1]
   dropout: 0.5
 optimizations:
