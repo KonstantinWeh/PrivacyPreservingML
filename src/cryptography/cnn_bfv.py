@@ -55,8 +55,8 @@ class FHE:
 if __name__ == "__main__":
     plain_modulus = 1032193 # Large enough for scale=10000
     x_input = [0, 133, 254, 9, 205, 248, 126, 254, 182]
-    y_input = [-0.03, -0.0261, -0.0194, 0.0786, 0.3495, -0.0135, -0.342, -0.181, -0.2126]
-    # y_input = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    #y_input = [-0.03, -0.0261, -0.0194, 0.0786, 0.3495, -0.0135, -0.342, -0.181, -0.2126]
+    y_input = [1, 1, 1, 1, 1, 1, 1, 1, 1]
 
     fhe_demo = FHE()
     fhe_demo.setup(len(x_input), prime=plain_modulus)
