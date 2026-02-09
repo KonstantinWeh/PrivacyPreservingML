@@ -29,7 +29,7 @@ def test_ipfe_cnn(model, encrypted_data, labels, H, W, device):
     model.eval()
 
     with torch.no_grad():
-        print("Testing IPFE-CNN forward pass on encrypted data...")
+        print("Testing CNN forward pass on encrypted data...")
         print(f"Labels of test samples: {labels.cpu().numpy()}")
 
         try:
@@ -44,14 +44,14 @@ def test_ipfe_cnn(model, encrypted_data, labels, H, W, device):
 
 
         except Exception as e:
-            print(f"Encrypted IPFE forward pass failed: {e}")
+            print(f"Encrypted forward pass failed: {e}")
 
 def test_regular_ipfe_cnn(model, test_loader, device, num_samples=5):
     """Test the IPFE-CNN with a sample query vector"""
     model.eval()
 
     with torch.no_grad():
-        print("Testing IPFE-CNN forward pass on encrypted data...")
+        print("Testing CNN forward pass on encrypted data...")
 
         data_iter = iter(test_loader)
         images, labels = next(data_iter)
@@ -72,7 +72,7 @@ def test_regular_ipfe_cnn(model, test_loader, device, num_samples=5):
 
 
         except Exception as e:
-            print(f"Encrypted IPFE forward pass failed: {e}")
+            print(f"Encrypted forward pass failed: {e}")
 
 
 def load_data():
