@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from src.cryptography.cnn_ipfe import IPFE
-from src.cryptography.cnn_ckks import FHE
+from src.cryptography.cnn_ckks import CKKSFHE
+from src.cryptography.cnn_bfv import BFVFHE
 from src.cryptography.optimized_cnn_ipfe import IPFE as OptimizedIPFE
 from src.cryptography.optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
@@ -123,7 +124,7 @@ class PlainCNN(nn.Module):
         x = x.to(torch.float32)
         return self.backbone.forward_body(x)
 
-class FHECNN(nn.Module):
+class CKKSCNN(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
@@ -132,7 +133,7 @@ class FHECNN(nn.Module):
         # FHE helper for first layer
         first_kernel = cfg["model"]["k"][0]
         self.encryption_length = first_kernel * first_kernel  # e.g. 3x3 => 9
-        self.fhe = FHE()
+        self.fhe = CKKSFHE()
         self.fhe.setup(l=self.encryption_length, poly_modulus_degree=4096, coeff_mod_bit_sizes=[40, 20, 40], scale_bits=20)
 
         # prepared after loading weights
@@ -154,116 +155,256 @@ class FHECNN(nn.Module):
         self.load_state_dict(src, strict=False)
         self._prepare_fhe_from_conv1()
 
-        @torch.no_grad()
-        def _prepare_fhe_from_conv1(self):
-            # conv1 weights & biases -> plaintext vectors for inner products
-            w = self.backbone.conv1.weight.data  # (out_ch, in_ch, k, k)
-            # flatten each kernel: (out_ch, k*k); assumes in_ch == 1
-            self.kernels = w.view(w.size(0), -1).detach().cpu()  # (num_kernels, encryption_length)
-            self.biases = self.backbone.conv1.bias.detach().cpu()  # (num_kernels,)
-            self._fhe_ready = True
+    @torch.no_grad()
+    def _prepare_fhe_from_conv1(self):
+        # conv1 weights & biases -> plaintext vectors for inner products
+        w = self.backbone.conv1.weight.data  # (out_ch, in_ch, k, k)
+        # flatten each kernel: (out_ch, k*k); assumes in_ch == 1
+        self.kernels = w.view(w.size(0), -1).detach().cpu()  # (num_kernels, encryption_length)
+        self.biases = self.backbone.conv1.bias.detach().cpu()  # (num_kernels,)
+        self._fhe_ready = True
 
-        def encrypt_data(self, x):
-            """
+    def encrypt_data(self, x):
+        """
+        x: torch.Tensor (B, 1, H_in, W_in)
+        Returns: list length B; each element is a list of CKKS ciphertexts for that image.
+        """
+        x = x.to(torch.float32)
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad = self.backbone.conv1.padding[0]
+        stride = self.backbone.conv1.stride[0]
+
+        unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
+        patches = unfold(x)  # (B, in_ch*ksize*ksize, num_patches)
+        B, patch_size, num_patches = patches.shape
+
+        encrypted_patches = []
+        for b in range(B):
+            patches_b = patches[b].T  # (num_patches, encryption_length)
+            encrypted_image = []
+            for p in range(num_patches):
+                patch = patches_b[p]  # length = encryption_length
+                ct_patch = self.fhe.encrypt(patch)
+                encrypted_image.append(ct_patch)
+            encrypted_patches.append(encrypted_image)
+
+        return encrypted_patches
+
+    def first_conv_forward(self, x, H, W, precrypted: bool = False):
+        """
+        If precrypted=False:
             x: torch.Tensor (B, 1, H_in, W_in)
-            Returns: list length B; each element is a list of CKKS ciphertexts for that image.
-            """
-            x = x.to(torch.float32)
-            ksize = self.backbone.conv1.kernel_size[0]
-            pad = self.backbone.conv1.padding[0]
-            stride = self.backbone.conv1.stride[0]
+        If precrypted=True:
+            x: encrypted_patches from encrypt_data(...) (list-of-lists of CKKSVector)
+        H, W: conv1 output spatial dims (Hout, Wout).
+        """
+        assert self._fhe_ready, "Call load_from_checkpoint(...) before encrypted forward."
+        device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
 
-            unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
-            patches = unfold(x)  # (B, in_ch*ksize*ksize, num_patches)
-            B, patch_size, num_patches = patches.shape
+        if not precrypted:
+            encrypted_patches = self.encrypt_data(x)
+        else:
+            encrypted_patches = x
 
-            encrypted_patches = []
-            for b in range(B):
-                patches_b = patches[b].T  # (num_patches, encryption_length)
-                encrypted_image = []
+        B = len(encrypted_patches)
+        num_patches = len(encrypted_patches[0])
+        num_kernels = self.kernels.size(0)
+
+        # H, W should be the conv1 output dims (same as IPFE path)
+        Hout, Wout = H, W
+
+        feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
+
+        for b in range(B):
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            for k in range(num_kernels):
+                k_vec = self.kernels[k]  # (encryption_length,)
+                bias_k = float(self.biases[k].item())
                 for p in range(num_patches):
-                    patch = patches_b[p]  # length = encryption_length
-                    ct_patch = self.fhe.encrypt(patch)
-                    encrypted_image.append(ct_patch)
-                encrypted_patches.append(encrypted_image)
+                    ct_patch = encrypted_patches[b][p]
+                    ip = self.fhe.inner_product(ct_patch, k_vec)
+                    decrypted_maps[k, p] = ip + bias_k
+            feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
+            feature_maps_batch[b] = feature_maps_b
 
-            return encrypted_patches
+        return feature_maps_batch
 
-        def first_conv_forward(self, x, H, W, precrypted: bool = False):
-            """
-            If precrypted=False:
-                x: torch.Tensor (B, 1, H_in, W_in)
-            If precrypted=True:
-                x: encrypted_patches from encrypt_data(...) (list-of-lists of CKKSVector)
-            H, W: conv1 output spatial dims (Hout, Wout).
-            """
-            assert self._fhe_ready, "Call load_from_checkpoint(...) before encrypted forward."
-            device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
+    def forward(self, x, H=None, W=None, encrypted=False, precrypted=False):
+        """
+        If encrypted=False:
+            x: torch.Tensor (B, 1, H_in, W_in), do plain conv1.
+        If encrypted=True:
+            x: raw images (if precrypted=False) or encrypted patches (if precrypted=True).
+            H, W: conv1 output spatial dims.
+        """
+        if encrypted:
+            if H is None or W is None:
+                raise ValueError("H and W must be provided when encrypted=True.")
+            x = self.first_conv_forward(x, H, W, precrypted=precrypted)
+            x = F.relu(self.backbone.bn1(x))
+            if hasattr(self.backbone, "pool1"):
+                x = self.backbone.pool1(x)
+        else:
+            x = self.backbone.conv1(x)
+            x = F.relu(self.backbone.bn1(x))
+            if hasattr(self.backbone, "pool1"):
+                x = self.backbone.pool1(x)
 
-            if not precrypted:
-                encrypted_patches = self.encrypt_data(x)
-            else:
-                encrypted_patches = x
+        # remaining conv + bn + pool + fc as in IPFECNN
+        for i in range(1, self.backbone.n_layers):
+            conv = getattr(self.backbone, f"conv{i + 1}")
+            bn = getattr(self.backbone, f"bn{i + 1}")
+            x = F.relu(bn(conv(x)))
+            pool_attr = f"pool{i + 1}"
+            if hasattr(self.backbone, pool_attr):
+                pool_layer = getattr(self.backbone, pool_attr)
+                x = pool_layer(x)
 
-            B = len(encrypted_patches)
-            num_patches = len(encrypted_patches[0])
-            num_kernels = self.kernels.size(0)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.backbone.fc1(x))
+        x = self.backbone.dropout(x)
+        x = self.backbone.fc2(x)
+        return x
 
-            # H, W should be the conv1 output dims (same as IPFE path)
-            Hout, Wout = H, W
+class BFVCNN(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.backbone = build_backbone(cfg)  # SAME layers as PlainCNN
 
-            feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
+        # FHE helper for first layer
+        first_kernel = cfg["model"]["k"][0]
+        self.encryption_length = first_kernel * first_kernel  # e.g. 3x3 => 9
+        self.fhe = BFVFHE()
+        self.fhe.setup(l=self.encryption_length, n_length=26)
 
-            for b in range(B):
-                decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
-                for k in range(num_kernels):
-                    k_vec = self.kernels[k]  # (encryption_length,)
-                    bias_k = float(self.biases[k].item())
-                    for p in range(num_patches):
-                        ct_patch = encrypted_patches[b][p]
-                        ip = self.fhe.inner_product(ct_patch, k_vec)
-                        decrypted_maps[k, p] = ip + bias_k
-                feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
-                feature_maps_batch[b] = feature_maps_b
+        # prepared after loading weights
+        self._fhe_ready = False
+        self.kernels = None
+        self.biases = None
 
-            return feature_maps_batch
+    @torch.no_grad()
+    def load_from_checkpoint(self, path_or_state, map_location="cpu"):
+        """
+        Load state_dict saved from PlainCNN (same naming under 'backbone.*').
+        Also prepares FHE materials from conv1 weights.
+        """
+        if isinstance(path_or_state, (str, bytes)):
+            src = torch.load(path_or_state, map_location=map_location)
+        else:
+            src = path_or_state
 
-        def forward(self, x, H=None, W=None, encrypted=False, precrypted=False):
-            """
-            If encrypted=False:
-                x: torch.Tensor (B, 1, H_in, W_in), do plain conv1.
-            If encrypted=True:
-                x: raw images (if precrypted=False) or encrypted patches (if precrypted=True).
-                H, W: conv1 output spatial dims.
-            """
-            if encrypted:
-                if H is None or W is None:
-                    raise ValueError("H and W must be provided when encrypted=True.")
-                x = self.first_conv_forward(x, H, W, precrypted=precrypted)
-                x = F.relu(self.backbone.bn1(x))
-                if hasattr(self.backbone, "pool1"):
-                    x = self.backbone.pool1(x)
-            else:
-                x = self.backbone.conv1(x)
-                x = F.relu(self.backbone.bn1(x))
-                if hasattr(self.backbone, "pool1"):
-                    x = self.backbone.pool1(x)
+        self.load_state_dict(src, strict=False)
+        self._prepare_fhe_from_conv1()
 
-            # remaining conv + bn + pool + fc as in IPFECNN
-            for i in range(1, self.backbone.n_layers):
-                conv = getattr(self.backbone, f"conv{i + 1}")
-                bn = getattr(self.backbone, f"bn{i + 1}")
-                x = F.relu(bn(conv(x)))
-                pool_attr = f"pool{i + 1}"
-                if hasattr(self.backbone, pool_attr):
-                    pool_layer = getattr(self.backbone, pool_attr)
-                    x = pool_layer(x)
+    @torch.no_grad()
+    def _prepare_fhe_from_conv1(self):
+        # conv1 weights & biases -> plaintext vectors for inner products
+        w = self.backbone.conv1.weight.data  
+        self.kernels = torch.round(w.view(w.size(0), -1) * 10000).long().tolist() #torch.round(w.view(w.size(0), -1).squeeze(1).view(w.size(0), -1) * 10000).long().tolist()
+        self.biases = self.backbone.conv1.bias.data
+        self._fhe_ready = True
 
-            x = x.view(x.size(0), -1)
-            x = F.relu(self.backbone.fc1(x))
-            x = self.backbone.dropout(x)
-            x = self.backbone.fc2(x)
-            return x
+    def encrypt_data(self, x):
+        """
+        x: torch.Tensor (B, 1, H_in, W_in)
+        Returns: list length B; each element is a list of CKKS ciphertexts for that image.
+        """
+        x = x.to(torch.float32)
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad = self.backbone.conv1.padding[0]
+        stride = self.backbone.conv1.stride[0]
+
+        unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
+        patches = unfold(x)  # (B, in_ch*ksize*ksize, num_patches)
+        B, patch_size, num_patches = patches.shape
+
+        encrypted_patches = []
+        for b in range(B):
+            patches_b = patches[b].T  # (num_patches, encryption_length)
+            encrypted_image = []
+            for p in range(num_patches):
+                patch = patches_b[p].tolist()  # length = encryption_length
+                ct_patch = self.fhe.encrypt(patch)
+                encrypted_image.append(ct_patch)
+            encrypted_patches.append(encrypted_image)
+
+        return encrypted_patches
+
+    def first_conv_forward(self, x, precrypted: bool):
+        """
+        If precrypted=False:
+            x: torch.Tensor (B, 1, H_in, W_in)
+        If precrypted=True:
+            x: encrypted_patches from encrypt_data(...) (list-of-lists of CKKSVector)
+        H, W: conv1 output spatial dims (Hout, Wout).
+        """
+        H, W = 28, 28  # hardcoded bc of MNIST
+
+        if not precrypted:
+            encrypted_patches = self.encrypt_data(x)  # shape: (B, num_patches, encryption_length + 1)
+        else:
+            encrypted_patches = x
+
+        B = len(encrypted_patches)
+
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad = self.backbone.conv1.padding[0]
+        stride = self.backbone.conv1.stride[0]
+
+        assert self._fhe_ready, "Call load_from_checkpoint(...) before encrypted forward."
+        device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
+
+        num_patches = len(encrypted_patches[0])
+        num_kernels = len(self.kernels)
+
+        # Calculate output dimensions
+        Hout = int((H + 2 * pad - ksize) / stride + 1)
+        Wout = int((W + 2 * pad - ksize) / stride + 1)
+
+        feature_maps_batch = torch.zeros(B, num_kernels, H, W, device=device)
+
+        for b in range(B):
+            decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+            for k in range(num_kernels):
+                k_vec = self.kernels[k]  # (encryption_length,)
+                bias_k = self.biases[k].item()
+                for p in range(num_patches):
+                    ct_patch = encrypted_patches[b][p]
+                    ip = self.fhe.inner_product(ct_patch, k_vec) / 10000.0
+                    decrypted_maps[k, p] = ip + bias_k
+            feature_maps_batch[b] = decrypted_maps.view(num_kernels, H, W)
+
+        return feature_maps_batch
+
+    def forward(self, x):
+        """
+        If encrypted=False:
+            x: torch.Tensor (B, 1, H_in, W_in), do plain conv1.
+        If encrypted=True:
+            x: raw images (if precrypted=False) or encrypted patches (if precrypted=True).
+            H, W: conv1 output spatial dims.
+        """
+        x = self.first_conv_forward(x, precrypted=True)
+        x = F.relu(self.backbone.bn1(x))
+        if hasattr(self.backbone, "pool1"):
+            x = self.backbone.pool1(x)
+
+        # remaining conv + bn + pool + fc as in IPFECNN
+        for i in range(1, self.backbone.n_layers):
+            conv = getattr(self.backbone, f"conv{i + 1}")
+            bn = getattr(self.backbone, f"bn{i + 1}")
+            x = F.relu(bn(conv(x)))
+            pool_attr = f"pool{i + 1}"
+            if hasattr(self.backbone, pool_attr):
+                pool_layer = getattr(self.backbone, pool_attr)
+                x = pool_layer(x)
+
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.backbone.fc1(x))
+        x = self.backbone.dropout(x)
+        x = self.backbone.fc2(x)
+        return x
 
 class IPFECNN(nn.Module):
     """

@@ -6,10 +6,9 @@ from src.utils.timing import timed
 def evaluate_top1(model, loader, device, cfg):
     model.eval()
     correct, total = 0, 0
-    
     # Pre-encrypt all batches outside timer if needed (to exclude encryption from timing)
     t_encrypt_elapsed = 0.0
-    if cfg["optimizations"]["precrypted"] and (cfg["model"]["name"] == "ipfe" or cfg["model"]["name"] == "fhe"):
+    if cfg["optimizations"]["precrypted"] and (cfg["model"]["name"] == "ipfe" or cfg["model"]["name"] == "ckks" or cfg["model"]["name"] == "bfv"):
         print("Pre-encrypting all batches...")
         with timed(device=device) as t_encrypt:
             encrypted_batches = []

@@ -1,7 +1,7 @@
 import tenseal as ts
 import torch
 
-class FHE:
+class CKKSFHE:
     """
     Simple CKKS-based 'inner-product' helper, analogous in spirit to IPFE.IPFE:
     - setup(l): choose CKKS params & remember vector length l

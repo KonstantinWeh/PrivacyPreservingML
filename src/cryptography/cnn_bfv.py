@@ -1,6 +1,6 @@
 from phe import paillier
 
-class FHE:
+class BFVFHE:
     def __init__(self):
         self.length = None
         self.public_key = None
@@ -24,7 +24,8 @@ class FHE:
         result = 0
 
         for i, (ct, y_val) in enumerate(zip(ct_x, y)):
-            result += ct * y_val  # Homomorphic mult/add
+            y_val_mod = y_val #% self.public_key.n
+            result += ct * y_val_mod  # Homomorphic mult/add
 
         return self.private_key.decrypt(result)
 
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     x_input = [0, 133, 254, 9, 205, 248, 126, 254, 182]
     y_input = [-0.03, -0.0261, -0.0194, 0.0786, 0.3495, -0.0135, -0.342, -0.181, -0.2126]
 
-    fhe = FHE()
+    fhe = BFVFHE()
     fhe.setup(len(x_input), n_length=26)  # Fast prototyping
 
     # NOW PRINT YOUR PRIMES
