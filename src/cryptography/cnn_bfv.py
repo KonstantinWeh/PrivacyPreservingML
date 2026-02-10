@@ -1,4 +1,4 @@
-from phe import paillier
+from phe import paillier, EncryptedNumber
 
 class BFVFHE:
     def __init__(self):
@@ -24,15 +24,16 @@ class BFVFHE:
         result = 0
 
         for i, (ct, y_val) in enumerate(zip(ct_x, y)):
-            y_val_mod = y_val #% self.public_key.n
-            result += ct * y_val_mod  # Homomorphic mult/add
+            if isinstance(ct, EncryptedNumber):
+                y_val_mod = int(y_val)
+                result += ct * y_val_mod
 
         return self.private_key.decrypt(result)
 
     def run(self, x, y, bias, scale=10000):
         ct = self.encrypt(x)
         y_scaled = [int(round(yi * scale)) for yi in y]
-        ip_raw = self.inner_product(ct, y)
+        ip_raw = self.inner_product(ct, y_scaled)
         ip = ip_raw / scale
 
         print("<x,y> (expected):", sum(xi * yi for xi, yi in zip(x, y)) + bias)
@@ -44,12 +45,7 @@ if __name__ == "__main__":
     y_input = [-0.03, -0.0261, -0.0194, 0.0786, 0.3495, -0.0135, -0.342, -0.181, -0.2126]
 
     fhe = BFVFHE()
-    fhe.setup(len(x_input), n_length=26)  # Fast prototyping
+    fhe.setup(len(x_input), n_length=30)  # Fast prototyping
 
-    # NOW PRINT YOUR PRIMES
-    print(f"\n=== Paillier Key Info ===")
-    print(f"p = {fhe.private_key.p}")
-    print(f"q = {fhe.private_key.q}")
-    print(f"n = {fhe.public_key.n}")
 
     fhe.run(x_input, y_input, -0.016008036211133003)

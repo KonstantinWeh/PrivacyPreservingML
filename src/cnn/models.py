@@ -276,7 +276,7 @@ class BFVCNN(nn.Module):
         first_kernel = cfg["model"]["k"][0]
         self.encryption_length = first_kernel * first_kernel  # e.g. 3x3 => 9
         self.fhe = BFVFHE()
-        self.fhe.setup(l=self.encryption_length, n_length=26)
+        self.fhe.setup(l=self.encryption_length, n_length=64)
 
         # prepared after loading weights
         self._fhe_ready = False
