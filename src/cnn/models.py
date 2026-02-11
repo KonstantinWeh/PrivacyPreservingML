@@ -276,7 +276,7 @@ class BFVCNN(nn.Module):
         first_kernel = cfg["model"]["k"][0]
         self.encryption_length = first_kernel * first_kernel  # e.g. 3x3 => 9
         self.fhe = BFVFHE()
-        self.fhe.setup(l=self.encryption_length, n_length=64)
+        self.fhe.setup(l=self.encryption_length, n_length=48)
 
         # prepared after loading weights
         self._fhe_ready = False
@@ -362,7 +362,7 @@ class BFVCNN(nn.Module):
         Hout = int((H + 2 * pad - ksize) / stride + 1)
         Wout = int((W + 2 * pad - ksize) / stride + 1)
 
-        feature_maps_batch = torch.zeros(B, num_kernels, H, W, device=device)
+        feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
 
         for b in range(B):
             decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
@@ -373,7 +373,7 @@ class BFVCNN(nn.Module):
                     ct_patch = encrypted_patches[b][p]
                     ip = self.fhe.inner_product(ct_patch, k_vec) / 10000.0
                     decrypted_maps[k, p] = ip + bias_k
-            feature_maps_batch[b] = decrypted_maps.view(num_kernels, H, W)
+            feature_maps_batch[b] = decrypted_maps.view(num_kernels, Hout, Wout)
 
         return feature_maps_batch
 
