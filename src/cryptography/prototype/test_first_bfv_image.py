@@ -1,13 +1,13 @@
 import numpy as np
 import torch
 
-from src.cryptography.cnn_bfv import FHE  # your BFV FHE class
+from src.cryptography.cnn_bfv import BFVFHE  # your BFV FHE class
 
 if __name__ == "__main__":
     x_small = [0, 133, 254, 9, 205, 248, 126, 254, 182]  # integers
     y_small = [-30, -26, -19, 78, 349, -13, -342, -181, -212]  # scaled integers
 
-    fhe_demo = FHE()
+    fhe_demo = BFVFHE()
     fhe_demo.setup(len(x_small), plain_modulus=65537, scale=1)  # scale=1 for integers
 
     ct = fhe_demo.encrypt(x_small)
