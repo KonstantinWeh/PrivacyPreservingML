@@ -1,7 +1,7 @@
 seed: 1337
 device: "cpu"
 ipfe:
-  prime: 281474977 # 48 bit prime 281474977
+  prime: 281474976710677 # 48 bit prime 281474977
   encryption_length: 4 #2x2 -> 4 #3x3 -> 9 #5x5 ->25
 data:
   name: "MNIST"

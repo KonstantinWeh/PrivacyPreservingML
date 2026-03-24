@@ -123,7 +123,7 @@ A client encrypts image data, sends it to the server, and receives predictions â
 #### Demo Workflow
 1. **Start the server**
    ```bash
-   python Demo.server
+   python -m Demo.server
     ```  
 The server listens on 127.0.0.1:5000 and loads models:
 
@@ -131,7 +131,7 @@ The server listens on 127.0.0.1:5000 and loads models:
 
 2. **Run the client**
     ```bash
-    python Demo.client
+    python -m Demo.client
     ```  
 - Interactive prompt options
   - Command 0 â€“ Close Demo
