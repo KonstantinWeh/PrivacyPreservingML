@@ -27,7 +27,11 @@ The Jupyter notebooks walk through all experimental steps of the project, each b
 5. **`04_0_kernel_ipfe_cnn.ipynb`** – Applies IPFE at the kernel level.  
 6. **`04_1_kernel_patch_ipfe_cnn.ipynb`** – Tests the kernel-patch approach and compares results.  
 7. **`04_2_batch_ipfe_cnn.ipynb`** – Implements batch-based performance measurements and parallel decryption with compiler optimizations.  
-8. **`04_3_batch_kernel_ipfe_cnn.ipynb`** – Extends the previous batching approach to kernel-level IPFE.
+8. **`04_3_batch_kernel_ipfe_cnn.ipynb`** – Extends the previous batching approach to kernel-level IPFE.  
+9. **`05_ckks_cnn.ipynb`** – Applies CKKS homomorphic encryption for CNN inference.  
+10. **`06_bfv_cnn.ipynb`** – Uses BFV scheme for encrypted CNN.  
+11. **`07_p_ipfe_cnn.ipynb`** – Introduces Paillier-based IPFE for the first CNN layer.  
+12. **`08_1_p_batch_ipfe_cnn.ipynb`** – Implements batch parallelization for Paillier IPFE.
 
 **Notes and tips**
 - Some notebooks require pretrained weights from the `models/` directory. If missing, the notebook may retrain or raise an error; review the top cells for a `load model` option.  

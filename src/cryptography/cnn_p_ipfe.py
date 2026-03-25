@@ -48,31 +48,6 @@ def _L(u: int, N: int) -> int:
     """L function: L(u) = (u - 1) // N   (works exactly when u ≡ 1 mod N)."""
     return (u - 1) // N
 
-
-def _paillier_encrypt_raw(g: int, N: int, N2: int, x_i: int, r: int) -> int:
-    """
-    Encrypt a single integer x_i:
-        C_i = (1 + N)^{x_i} * h_i^r mod N^2
-    Here we defer the h_i^r factor to the caller so this just
-    computes the (1+N)^{x_i} part.
-    """
-    return pow(1 + N, x_i % N, N2)
-
-
-def _paillier_decrypt_raw(C: int, sk: int, N: int, N2: int) -> int:
-    """
-    Recover plaintext from a raw Paillier ciphertext C = (1+N)^m * r^N:
-        L(C^sk mod N^2) / L(g^sk mod N^2)
-    For our scheme, g generates the (2N)-th residues, so we use the
-    standard Paillier decryption shortcut with the factorization.
-    """
-    # L(C^sk mod N^2) * mu mod N  where mu = L(g^sk)^{-1} mod N
-    # Since we built g = g'^{2N}, we have g^r = (g')^{2Nr} which is a
-    # perfect N-th power, so the standard Paillier L trick works.
-    num = _L(pow(C, sk, N2), N) % N
-    return num
-
-
 # ---------------------------------------------------------------------------
 # IPFE-Paillier class
 # ---------------------------------------------------------------------------
