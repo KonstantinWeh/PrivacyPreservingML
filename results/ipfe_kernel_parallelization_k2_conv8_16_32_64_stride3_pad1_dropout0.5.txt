@@ -4,6 +4,6 @@ Total Parameters: 34,194
 Optimizations: _kernel_parallelization
 Weights Loaded From: models\k2_conv8_16_32_64_stride3_pad1_dropout0.5.pt
 Test set size: 64
-Test top1: 98.4375
-Test eval_seconds: 7.726675700003398
-Test encrypt_seconds: 6.910948199998529
+Test top1: 7.8125
+Test eval_seconds: 47.255258799999865
+Test encrypt_seconds: 6.203693100000237

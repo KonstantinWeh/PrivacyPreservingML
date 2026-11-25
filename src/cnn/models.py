@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from src.cryptography.cnn_ipfe import IPFE
 from src.cryptography.cnn_ckks import CKKSFHE
 from src.cryptography.cnn_bfv import BFVFHE
+from src.cryptography.optimized_p_cnn_ipfe import IPFEPaillier
 from src.cryptography.optimized_cnn_ipfe import IPFE as OptimizedIPFE
 from src.cryptography.optimized_cnn_ipfe import decrypt_patches_batch
 from concurrent.futures import ThreadPoolExecutor
@@ -406,6 +407,172 @@ class BFVCNN(nn.Module):
         x = self.backbone.fc2(x)
         return x
 
+class PaillierIPFECNN(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.backbone = build_backbone(cfg)  # SAME layers as PlainCNN
+
+        self.optimizations = cfg.get("optimizations", {})
+        self.batch_parallelization = bool(self.optimizations.get("batch_parallelization"))
+
+        # FHE helper for first layer
+        first_kernel = cfg["model"]["k"][0]
+        self.encryption_length = first_kernel * first_kernel  # e.g. 3x3 => 9
+        self.ipfe = IPFEPaillier(n_length=48, max_workers=None)
+        self.ipfe.setup(l=self.encryption_length)
+
+        # prepared after loading weights
+        self._ipfe_ready = False
+        self.kernels = None
+        self.biases = None
+        self.sk_y_array = None
+
+    @torch.no_grad()
+    def load_from_checkpoint(self, path_or_state, map_location="cpu"):
+        """
+        Load state_dict saved from PlainCNN (same naming under 'backbone.*').
+        Also prepares FHE materials from conv1 weights.
+        """
+        if isinstance(path_or_state, (str, bytes)):
+            src = torch.load(path_or_state, map_location=map_location)
+        else:
+            src = path_or_state
+
+        self.load_state_dict(src, strict=False)
+        self._prepare_ipfe_from_conv1()
+
+    @torch.no_grad()
+    def _prepare_ipfe_from_conv1(self):
+        # conv1 weights & biases -> plaintext vectors for inner products
+        w = self.backbone.conv1.weight.data
+        self.kernels = torch.round(w.view(w.size(0), -1) * 10000).long().tolist() #torch.round(w.view(w.size(0), -1).squeeze(1).view(w.size(0), -1) * 10000).long().tolist()
+        self.biases = self.backbone.conv1.bias.data
+        self.sk_y_array = self.ipfe.key_derive_batch(self.kernels)
+        self._ipfe_ready = True
+
+    def encrypt_data(self, x):
+        """
+        x: torch.Tensor (B, 1, H_in, W_in)
+        Returns: list length B; each element is a list of CKKS ciphertexts for that image.
+        """
+
+        x = x.to(torch.float32)
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad = self.backbone.conv1.padding[0]
+        stride = self.backbone.conv1.stride[0]
+
+        unfold = nn.Unfold(kernel_size=ksize, stride=stride, padding=pad)
+        patches = unfold(x)  # (B, in_ch*ksize*ksize, num_patches)
+        B, patch_size, num_patches = patches.shape
+
+        encrypted_patches = []
+        for b in range(B):
+            patches_b = patches[b].T  # (num_patches, encryption_length)
+            encrypted_image = []
+            for p in range(num_patches):
+                patch = patches_b[p]  # length = encryption_length
+                ct_patch = self.ipfe.encrypt(patch)
+                encrypted_image.append(ct_patch)
+            encrypted_patches.append(encrypted_image)
+
+        return encrypted_patches
+
+    def first_conv_forward(self, x, precrypted: bool):
+        """
+        If precrypted=False:
+            x: torch.Tensor (B, 1, H_in, W_in)
+        If precrypted=True:
+            x: encrypted_patches from encrypt_data(...)
+        H, W: conv1 output spatial dims (Hout, Wout).
+        """
+        H, W = 28, 28  # hardcoded bc of MNIST
+
+        if not precrypted:
+            encrypted_patches = self.encrypt_data(x)  # shape: (B, num_patches, encryption_length + 1)
+        else:
+            encrypted_patches = x
+
+        B = len(encrypted_patches)
+        ksize = self.backbone.conv1.kernel_size[0]
+        pad = self.backbone.conv1.padding[0]
+        stride = self.backbone.conv1.stride[0]
+
+        assert self._ipfe_ready, "Call load_from_checkpoint(...) before encrypted forward."
+        device = torch.device(self.cfg["device"] if torch.cuda.is_available() else "cpu")
+
+        num_patches = len(encrypted_patches[0])
+        num_kernels = len(self.kernels)
+
+        # Calculate output dimensions
+        Hout = int((H + 2 * pad - ksize) / stride + 1)
+        Wout = int((W + 2 * pad - ksize) / stride + 1)
+
+        if self.batch_parallelization:
+            # (B, num_kernels, num_patches)
+            feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
+
+            for b in range(B):
+                decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+
+                decrypted_vals = self.ipfe.decrypt_patches_kernels_batch_optimized(encrypted_patches[b], self.sk_y_array,
+                                                                               self.kernels, scale=10000)
+
+                # decrypted_vals is (num_patches, num_kernels), transpose to (num_kernels, num_patches)
+                decrypted_maps = torch.tensor(decrypted_vals.T, dtype=torch.float32,
+                                          device=device) + self.biases.unsqueeze(1)
+
+                feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
+                feature_maps_batch[b] = feature_maps_b
+        else:
+
+            feature_maps_batch = torch.zeros(B, num_kernels, Hout, Wout, device=device)
+            for b in range(B):
+                decrypted_maps = torch.zeros(num_kernels, num_patches, device=device)
+
+                for k in range(num_kernels):
+                    k_vec = self.kernels[k]  # torch length-9
+                    bias_k = float(self.biases[k].item())
+                    sk_y = self.sk_y_array[k]
+                    for p in range(num_patches):
+                        ip = self.ipfe.decrypt(encrypted_patches[b][p], sk_y, k_vec) / 10000.0
+                        decrypted_maps[k, p] = ip + bias_k
+                # Reshape to (num_kernels, H_out, W_out) consistent with unfold settings
+                feature_maps_b = decrypted_maps.view(num_kernels, Hout, Wout)
+                feature_maps_batch[b] = feature_maps_b
+
+        x_ipfe = feature_maps_batch
+        return x_ipfe
+
+    def forward(self, x):
+        """
+        If encrypted=False:
+            x: torch.Tensor (B, 1, H_in, W_in), do plain conv1.
+        If encrypted=True:
+            x: raw images (if precrypted=False) or encrypted patches (if precrypted=True).
+            H, W: conv1 output spatial dims.
+        """
+        x = self.first_conv_forward(x, precrypted=True)
+        x = F.relu(self.backbone.bn1(x))
+        if hasattr(self.backbone, "pool1"):
+            x = self.backbone.pool1(x)
+
+        # remaining conv + bn + pool + fc as in IPFECNN
+        for i in range(1, self.backbone.n_layers):
+            conv = getattr(self.backbone, f"conv{i + 1}")
+            bn = getattr(self.backbone, f"bn{i + 1}")
+            x = F.relu(bn(conv(x)))
+            pool_attr = f"pool{i + 1}"
+            if hasattr(self.backbone, pool_attr):
+                pool_layer = getattr(self.backbone, pool_attr)
+                x = pool_layer(x)
+
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.backbone.fc1(x))
+        x = self.backbone.dropout(x)
+        x = self.backbone.fc2(x)
+        return x
+
 class IPFECNN(nn.Module):
     """
     Shares the exact same backbone as PlainCNN.
@@ -553,7 +720,7 @@ class IPFECNN(nn.Module):
             kernel_results = [0] * num_patches
 
             # Thread across patches for this batch
-            with ThreadPoolExecutor(max_workers=min(num_patches, 8)) as patch_executor:
+            with ThreadPoolExecutor(max_workers=None) as patch_executor:
                 patch_futures = [
                     patch_executor.submit(
                         self.process_patch,
@@ -631,7 +798,7 @@ class IPFECNN(nn.Module):
             # ----------------------
             # Threaded execution across kernels
             # ----------------------
-            with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as executor:
+            with ThreadPoolExecutor(max_workers=None) as executor:
                 futures = [
                     executor.submit(self.process_kernel, k, encrypted_patches)
                     for k in range(num_kernels)
@@ -651,7 +818,7 @@ class IPFECNN(nn.Module):
             # ----------------------
             # Thread across kernels; inside each kernel, patches are parallelized
             # ----------------------
-            with ThreadPoolExecutor(max_workers=min(num_kernels, 8)) as kernel_executor:
+            with ThreadPoolExecutor(max_workers=None) as kernel_executor:
                 kernel_futures = [
                     kernel_executor.submit(self.process_kernel_paral_patches, k, encrypted_patches)
                     for k in range(num_kernels)
@@ -709,7 +876,7 @@ class IPFECNN(nn.Module):
             # (B, num_kernels, num_patches)
             decrypted_maps = torch.zeros(B, num_kernels, num_patches, device=device)
 
-            with ThreadPoolExecutor(max_workers=min(num_kernels, os.cpu_count() or 4)) as executor:
+            with ThreadPoolExecutor(max_workers=None) as executor:
                 futures = [
                     executor.submit(self.decrypt_kernel, k, ct0_array, cts_array)
                     for k in range(num_kernels)

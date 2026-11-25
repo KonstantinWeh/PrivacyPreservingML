@@ -3,7 +3,7 @@ from pathlib import Path
 
 from src.utils.seed import set_seed
 from src.cnn.data import make_mnist_loaders
-from src.cnn.models import PlainCNN, IPFECNN, BFVCNN, CKKSCNN
+from src.cnn.models import PlainCNN, IPFECNN, BFVCNN, CKKSCNN, PaillierIPFECNN
 from src.cnn.train import fit
 from src.cnn.eval import evaluate_top1
 from src.cnn.utils import make_run_dir, save_config, save_checkpoint, find_checkpoint, _build_model_tag_from_cfg
@@ -30,6 +30,8 @@ def build_model(cfg):
         return CKKSCNN(cfg)
     elif cfg["model"]["name"] == "bfv":
         return BFVCNN(cfg)
+    elif cfg["model"]["name"] == "p-ipfe":
+        return PaillierIPFECNN(cfg)
     else:
         raise ValueError("Unknown model.name")
 
@@ -41,6 +43,8 @@ def load_model_from_cfg(cfg):
         model = CKKSCNN(cfg)
     elif cfg["model"]["name"] == "bfv":
         model = BFVCNN(cfg)
+    elif cfg["model"]["name"] == "p-ipfe":
+        model = PaillierIPFECNN(cfg)
     else:
         model = IPFECNN(cfg)
 
@@ -68,7 +72,7 @@ def save_metrics_to_txt(cfg, total_params, test_metrics, loaders, train_metrics)
         optimizations_str += "_kernel_parallelization"
     elif optimizations["kernel_patches_parallelization"] and model_name == "ipfe":
         optimizations_str += "_kernel_patches_parallelization"
-    elif optimizations["batch_parallelization"] and model_name == "ipfe":
+    elif optimizations["batch_parallelization"] and (model_name == "ipfe" or model_name == "p-ipfe"):
         optimizations_str += "_batch_parallelization"
     elif optimizations["batch_kernels_parallelization"] and model_name == "ipfe":
         optimizations_str += "_batch_kernels_parallelization"

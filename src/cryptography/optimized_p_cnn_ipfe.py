@@ -147,13 +147,13 @@ class IPFEPaillier:
                 f"Increase n_length or reduce X_bound / Y_bound."
             )
 
-        print(f"=== IPFEPaillier Setup ===")
-        print(f"  n_length  : {self.n_length} bits")
-        print(f"  N         : {N.bit_length()} bits")
-        print(f"  l         : {l}")
-        print(f"  X_bound   : {X_bound}")
-        print(f"  Y_bound   : {Y_bound}")
-        print(f"  max|<x,y>|: {max_ip}  <  N ok")
+        # print(f"=== IPFEPaillier Setup ===")
+        # print(f"  n_length  : {self.n_length} bits")
+        # print(f"  N         : {N.bit_length()} bits")
+        # print(f"  l         : {l}")
+        # print(f"  X_bound   : {X_bound}")
+        # print(f"  Y_bound   : {Y_bound}")
+        # print(f"  max|<x,y>|: {max_ip}  <  N ok")
 
     # ------------------------------------------------------------------
     # Single-sample operations
